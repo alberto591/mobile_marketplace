@@ -127,7 +127,17 @@ La precision en la compatibilidad es el factor mas critico para evitar devolucio
 
 ---
 
-## 5. Limites de Seguridad y Normativa
+## 5. Modelo de Identidad de Producto frente a Pieza Individual (ADR 002)
+
+Para conciliar la facilidad de comparacion entre vendedores con el rigor legal y la naturaleza de recambios usados:
+
+1. **`Part` es la entidad canónica de inventario:** Cada registro representa una unidad física única en un desguace concreto, con su propio precio, fotos reales, estado comprobado, vehículo donante y trazabilidad de origen. Queda prohibido colapsar o fusionar físicamente dos ofertas.
+2. **`ProductIdentity` es una proyección agregada de lectura:** Agrupa dinámicamente piezas por referencia OEM normalizada para mostrar al usuario la horquilla de precios (`minPrice`, `maxPrice`) y el número de desguaces disponibles, sin alterar la identidad de las piezas individuales.
+3. Más información en [ADR 002: Separación entre Entidad de Inventario (Part) y Proyección Agregada de Catálogo (ProductIdentity)](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/002-product-identity-vs-part-inventory.md).
+
+---
+
+## 6. Limites de Seguridad y Normativa
 
 1. **Aislamiento de Secretos:**
    - Los tokens de API, contraseñas de servicio y claves maestras (`service_role_key`) nunca se exponen al cliente Expo.
@@ -140,7 +150,7 @@ La precision en la compatibilidad es el factor mas critico para evitar devolucio
 
 ---
 
-## 6. Decisiones Pendientes (Bloqueadas por Datos de APIs Reales)
+## 7. Decisiones Pendientes (Bloqueadas por Datos de APIs Reales)
 
 Las siguientes decisiones tecnicas se encuentran formalmente en estado **PENDIENTE** hasta obtener la documentacion real de los dos desguaces iniciales:
 

@@ -67,12 +67,12 @@ mobile-marketplace/
 │   ├── 2026-10-19_product-brief.md # Brief de producto exhaustivo e investigacion de mercado
 │   └── ADRs/                       # Architecture Decision Records
 │       └── 001-provider-adapter-architecture.md
-├── packages/                       # Dominio y logica compartida (previsto)
-│   └── core/
+├── packages/                       # Dominio y logica compartida (implementado)
+│   └── core/                       # @mobile-marketplace/core (entidades, puertos, Zod, fixtures)
 ├── apps/                           # Clientes de presentacion (previsto)
 │   └── mobile/
-└── supabase/                       # Esquemas SQL, politicas RLS y funciones (previsto)
-    ├── migrations/
+└── supabase/                       # Esquemas SQL, politicas RLS y funciones
+    ├── migrations/                 # Migraciones SQL canonicas versionadas
     └── functions/
 ```
 
@@ -84,19 +84,22 @@ mobile-marketplace/
 - Node.js (version 20 o superior; version verificada en entorno: v24.7.0).
 - npm (version 10 o superior; version verificada en entorno: 11.5.1).
 - Git (version 2.40 o superior).
-- Expo CLI (`npx expo`).
 
-### Configuracion Local (Proxima iteracion)
-Una vez completado el andamiaje del cliente y la base de datos:
-1. Clonar el repositorio.
-2. Copiar `.env.example` a `.env` y configurar las claves publicas de Supabase para desarrollo local.
-3. Instalar dependencias mediante `npm install`.
-4. Ejecutar la aplicacion con `npx expo start`.
+### Ejecucion de Pruebas y Tipado del Dominio
+```bash
+# Ejecutar todas las pruebas unitarias y de integracion (33 tests)
+npm test
+
+# Comprobar tipado estricto con TypeScript
+npm run typecheck
+```
 
 ---
 
 ## Documentacion de Referencia
 
+- [STATUS.md](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/STATUS.md): Estado actual del desarrollo, cobertura de tests y metricas.
 - [ARCHITECTURE.md](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/ARCHITECTURE.md): Principios arquitectonicos, modelo canonico y flujo de integracion.
 - [Product Brief](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/2026-10-19_product-brief.md): Investigacion de competidores, marco legal (RD 265/2021) y economia unitaria.
 - [ADR 001](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/001-provider-adapter-architecture.md): Arquitectura de adaptadores independientes para desguaces.
+- [ADR 002](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/002-product-identity-vs-part-inventory.md): Separacion entre Entidad de Inventario (Part) y Proyeccion Agregada de Catalogo (ProductIdentity).

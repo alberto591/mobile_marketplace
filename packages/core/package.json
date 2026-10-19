@@ -1,0 +1,22 @@
+{
+  "name": "@mobile-marketplace/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capa de dominio canónico, validación y contratos de adaptadores para marketplace de recambios de desguace",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.5"
+  }
+}

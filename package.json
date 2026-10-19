@@ -1,0 +1,18 @@
+{
+  "name": "mobile-marketplace-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marketplace de recambios usados de desguace - Monorepo",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@rolldown/binding-darwin-arm64": "^1.2.14",
+    "typescript": "^5.7.3"
+  }
+}
