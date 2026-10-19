@@ -1,0 +1,102 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Dependency lock files MUST be tracked - do not ignore
+!package-lock.json
+!yarn.lock
+!pnpm-lock.yaml
+!bun.lockb
+
+# Environment configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# Production and build outputs
+dist/
+build/
+web-build/
+out/
+
+# Testing and coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Expo
+.expo/
+.expo-shared/
+
+# React Native / Metro cache
+.metro/
+metro-cache/
+
+# iOS
+ios/Pods/
+ios/build/
+ios/DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xcworkspace
+!default.xcworkspace
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.xcuserstate
+
+# Android
+android/app/build/
+android/build/
+android/.gradle/
+.gradle/
+local.properties
+*.keystore
+!debug.keystore
+*.jks
+*.apk
+*.aab
+
+# Supabase local environment
+supabase/.branches/
+supabase/.temp/
+
+# IDE and editors
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Operating System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
