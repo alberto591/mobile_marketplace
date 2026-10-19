@@ -8,6 +8,7 @@ import {
   VendorSchema,
 } from '../src/validation/schemas.js';
 import { validateCanonicalPart } from '../src/validation/normalizers.js';
+import { isVendorConsumerCompliant } from '../src/domain/entities/vendor.js';
 
 describe('Validation and Error Reporting', () => {
   it('validates a valid canonical part candidate successfully', () => {
@@ -96,21 +97,39 @@ describe('Validation and Error Reporting', () => {
     }
   });
 
-  it('enforces Spanish regulatory constraints on Vendor entities (RD 265/2021 & Consumer Law)', () => {
-    // Fails because warranty is under 12 months (statutory minimum for second-hand commercial sales)
+  it('validates vendor policies and distinguishes general consumer law compliance from professional terms', () => {
+    // Rejects negative numbers
     expect(() =>
       VendorPoliciesSchema.parse({
-        warrantyMonths: 6, // Under legal 12 months minimum
+        warrantyMonths: -1,
         returnDays: 14,
       })
     ).toThrow();
 
-    // Valid vendor policy
-    const validPolicy = VendorPoliciesSchema.parse({
+    expect(() =>
+      VendorPoliciesSchema.parse({
+        warrantyMonths: 12,
+        returnDays: -5,
+      })
+    ).toThrow();
+
+    // Allows flexible non-negative terms for B2B or specialized agreements (e.g. 6 months warranty, 0 days return)
+    const b2bPolicy = VendorPoliciesSchema.parse({
+      warrantyMonths: 6,
+      returnDays: 0,
+    });
+    expect(b2bPolicy.warrantyMonths).toBe(6);
+    expect(b2bPolicy.returnDays).toBe(0);
+    expect(isVendorConsumerCompliant(b2bPolicy)).toBe(false);
+
+    // Standard B2C consumer distance sales policy
+    const consumerPolicy = VendorPoliciesSchema.parse({
       warrantyMonths: 12,
       returnDays: 14,
     });
-    expect(validPolicy.warrantyMonths).toBe(12);
+    expect(consumerPolicy.warrantyMonths).toBe(12);
+    expect(consumerPolicy.returnDays).toBe(14);
+    expect(isVendorConsumerCompliant(consumerPolicy)).toBe(true);
 
     // Postal code must be exactly 5 digits for Spanish addresses
     expect(() =>
@@ -126,7 +145,7 @@ describe('Validation and Error Reporting', () => {
           country: 'ES',
         },
         contact: {},
-        policies: validPolicy,
+        policies: consumerPolicy,
       })
     ).toThrow();
   });

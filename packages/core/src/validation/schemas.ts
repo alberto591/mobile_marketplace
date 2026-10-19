@@ -143,12 +143,12 @@ export const VendorContactSchema = z.object({
 });
 
 export const VendorPoliciesSchema = z.object({
-  warrantyMonths: z.number().int().min(12, {
-    message: 'Spanish consumer law requires minimum 12 months warranty on used commercial goods',
-  }),
-  returnDays: z.number().int().min(14, {
-    message: 'Distance selling regulations mandate minimum 14 days withdrawal period',
-  }),
+  warrantyMonths: z.number().int().nonnegative({
+    message: 'Warranty months must be a non-negative integer',
+  }).default(12),
+  returnDays: z.number().int().nonnegative({
+    message: 'Return days must be a non-negative integer',
+  }).default(14),
   shippingEstimateDays: z.number().int().positive().optional(),
   shippingPolicySummary: z.string().optional(),
 });
