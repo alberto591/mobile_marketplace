@@ -1,33 +1,48 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
 - **Fecha de actualización:** 2026-10-19
-- **Fase activa:** Fase 2 — Paso 6: Staging, Auditoría de Seguridad y Primera Sincronización Real
+- **Fase completada:** Fase 2 — Paso 6: Staging, Auditoría de Seguridad y Primera Sincronización Real (Completada al 100%)
 - **Estado de pruebas:** 73 pruebas automatizadas pasando al 100% (54 en `@mobile-marketplace/core`, 19 en `@mobile-marketplace/mobile`)
-- **Compilación móvil:** Bundle iOS para Hermes compilado y verificado con éxito (1.192 módulos empaquetados sin errores)
-- **Vulnerabilidades en dependencias:** 0 vulnerabilidades en `@mobile-marketplace/core`
+- **Compilación móvil:** Bundle iOS para Hermes verificado y compatible con modo `backend` (PostgREST) y modo `mock`
+- **Proyecto Supabase Staging:** `lmsjgxhzfksyrlxyqndd` (West Europe - Ireland)
+- **Repositorio Remoto GitHub:** `https://github.com/alberto591/mobile_marketplace` (rama `main` sincronizada)
 
 ---
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se han completado las **Fases A y B del Paso 6 (Auditoría de Seguridad y Endurecimiento)**:
+Se ha completado la **Fase 6 completa (Staging, Migraciones, Despliegue de Edge Function y Sincronización Piloto Real)**:
 
-1. **Auditoría de Seguridad de la Vista Pública y RLS:**
-   - Detectada la ausencia de `WITH (security_invoker = true, security_barrier = true)` en la vista previa.
-   - Detectada la necesidad de incorporar explícitamente `AND deleted_at IS NULL` en la política RLS de la tabla `parts`.
-   - Se implementó la migración correctiva [20261019000003_view_security_hardening.sql](supabase/migrations/20261019000003_view_security_hardening.sql) que:
-     - Recrea `public_catalog_parts` con `WITH (security_invoker = true, security_barrier = true)`.
-     - Actualiza la política `Public read for available parts` en `parts` forzando `deleted_at IS NULL`.
-     - Ejecuta `REVOKE ALL ON source_integrations, sync_logs FROM anon, authenticated, public` garantizando que las credenciales internas y logs de sincronización no sean descubribles por PostgREST.
-     - Concede permisos `SELECT` estrictamente de solo lectura a roles `anon` y `authenticated` en las tablas del catálogo.
-2. **Protección Administrativa en la Edge Function:**
-   - La acción `sync-batch` en [supabase/functions/eurodesguace-sync/index.ts](supabase/functions/eurodesguace-sync/index.ts) ahora exige obligatoriamente autorización administrativa con `service_role` o `SYNC_ADMIN_SECRET` devolviendo HTTP 401 Unauthorized ante llamadas anónimas.
-   - Acciones públicas `health` y `sample-parts` sanitizan los datos sin exponer claves de API ni tokens en ningún escenario.
-3. **Estado de Staging y Preparación Remota:**
-   - Verificado el CLI de Supabase: no existe proyecto de staging vinculado (`supabase link`) ni token de acceso activo.
-   - Verificado el entorno local: Docker no se encuentra en ejecución (`DOCKER_NOT_RUNNING`).
-   - Cero credenciales filtradas en Git o en el bundle de Expo.
-   - Se han documentado las instrucciones no destructivas para vincular el entorno de staging autorizado sin exponer claves de producción.
+1. **Migraciones SQL en Staging (100% aplicadas):**
+   - Vinculado el proyecto de staging `lmsjgxhzfksyrlxyqndd` (`mobile_marketplace`).
+   - Aplicadas sin errores las 4 migraciones canónicas:
+     - `20261019000000_canonical_catalog_schema.sql` (tablas de catálogo, donantes, OEM, imágenes, logs, constraints y RLS).
+     - `20261019000001_eurodesguace_vendor_seed.sql` (seed idempotente de Eurodesguace Málaga S.L.).
+     - `20261019000002_catalog_persistence_refinements.sql` (referencias visuales, vehículos donantes y vista `public_catalog_parts`).
+     - `20261019000003_view_security_hardening.sql` (vista `public_catalog_parts` endurecida con `security_invoker = true, security_barrier = true`, RLS con `deleted_at IS NULL` y revocación total de tablas privadas a roles públicos).
+
+2. **Despliegue y Configuración de Edge Function:**
+   - Secretos remotos custodiados en Supabase (`EURODESGUACE_API_KEY` y `EURODESGUACE_BASE_URL`).
+   - Edge Function `eurodesguace-sync` desplegada en Supabase con `Deno.serve(handler)`.
+   - Endpoint `action=ping`: respuesta instantánea en runtime Deno (HTTP 200).
+   - Endpoint `action=health`: diagnóstico sanitizado con la API en vivo de Eurodesguace Málaga (HTTP 200).
+   - Endpoint `action=sync-batch`: protegido con HTTP 401 Unauthorized ante llamadas anónimas.
+
+3. **Primera Sincronización Real de Catálogo (Lote Piloto Controlado):**
+   - Ejecutado script `scripts/sync_eurodesguace_pilot.py` con un lote piloto controlado de 10 piezas reales procedentes de la API de Eurodesguace Málaga.
+   - 10 piezas persistidas con éxito en las tablas canónicas:
+     - `parts` (10 filas)
+     - `part_vehicles` (especificaciones completas de vehículos donantes Citroen Nemo, Renault Laguna, Nissan Cabstar, Peugeot 307)
+     - `part_oem_references` (referencias visuales y estampadas normalizadas)
+     - `part_images` (enlaces reales a imágenes en CDN)
+   - Ejecutada prueba de **idempotencia**: segunda ejecución con el mismo lote arrojó 0 duplicados y actualizó `sync_logs` con auditoría completa de ejecución.
+
+4. **Verificación End-to-End con la Aplicación Móvil:**
+   - La vista pública `public_catalog_parts` es consultable por el rol `anon` vía PostgREST y no expone datos bancarios, fiscales ni credenciales privadas.
+   - Comprobada la integración directa mediante `BackendCatalogService`:
+     - Búsqueda por texto (`query: "CALEFACCION"`): 2 resultados reales devueltos con datos agregados.
+     - Consulta unitaria `getPartById`: recupera ficha técnica, fotos, desguace verificado CAT y referencias OEM.
+   - El proveedor B se mantiene funcional en modo `mock` sin interferencia mutua.
 
 ---
 
@@ -51,7 +66,7 @@ Se ejecutan **73 pruebas automatizadas** pasando al 100% con Vitest:
 
 ---
 
-## 3. Instrucciones para Ejecución Local
+## 3. Instrucciones de Ejecución
 
 ### Comprobación de Pruebas y Tipado
 ```bash
@@ -62,17 +77,13 @@ npm test
 npm run typecheck
 ```
 
-### Ejecutar Verificación en Vivo de la API de Eurodesguace
+### Ejecutar Sincronización Piloto a Staging
 ```bash
-python3 scripts/test_eurodesguace_connection.py
+python3 scripts/sync_eurodesguace_pilot.py
 ```
 
----
-
-## 4. Próximos Pasos para Desbloqueo de Staging (Fases C, D, F)
-
-1. Autenticar CLI en sesión local mediante `npx supabase login`.
-2. Vincular proyecto de staging independiente mediante `npx supabase link --project-ref <staging-project-ref>`.
-3. Configurar secreto de backend en staging: `npx supabase secrets set EURODESGUACE_API_KEY=...`.
-4. Ejecutar simulación `npx supabase db push --dry-run` para validar la aplicación de las 4 migraciones.
-5. Tras autorización explícita, ejecutar `npx supabase db push` e importar un lote piloto limitado de 50 piezas para comprobar idempotencia física y lectura en la app móvil.
+### Iniciar Aplicación Móvil
+```bash
+# Conectar con catálogo real en Supabase Staging
+npm run start -w @mobile-marketplace/mobile
+```

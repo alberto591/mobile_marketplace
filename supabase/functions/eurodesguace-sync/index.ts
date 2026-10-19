@@ -16,6 +16,7 @@ declare const Deno: {
   env: {
     get(key: string): string | undefined;
   };
+  serve?: (handler: (req: Request) => Promise<Response>) => void;
 };
 
 interface EnvConfig {
@@ -61,6 +62,21 @@ export async function handler(req: Request): Promise<Response> {
     const config = getEnvConfig();
     const url = new URL(req.url);
     const action = url.searchParams.get('action') || 'health';
+
+    // -------------------------------------------------------------------------
+    // 0. Lightweight heartbeat (instant check)
+    // -------------------------------------------------------------------------
+    if (action === 'ping') {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          status: 'ok',
+          service: 'eurodesguace-sync',
+          timestamp: new Date().toISOString(),
+        }),
+        { status: 200, headers: corsHeaders }
+      );
+    }
 
     // -------------------------------------------------------------------------
     // 1. Health check action
@@ -265,4 +281,8 @@ export async function handler(req: Request): Promise<Response> {
       { status: 500, headers: corsHeaders }
     );
   }
+}
+
+if (typeof Deno !== 'undefined' && typeof Deno.serve === 'function') {
+  Deno.serve(handler);
 }
