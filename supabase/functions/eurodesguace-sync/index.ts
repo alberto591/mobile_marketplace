@@ -157,6 +157,24 @@ export async function handler(req: Request): Promise<Response> {
     // 3. Batch synchronization (up to 50 items per controlled run)
     // -------------------------------------------------------------------------
     if (action === 'sync-batch') {
+      // Security Guardrail: administrative sync requires service_role authorization
+      const authHeader = req.headers.get('authorization') || req.headers.get('x-admin-secret') || '';
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const isAuthorized =
+        Boolean(config.adminSecret && token === config.adminSecret) ||
+        Boolean(config.supabaseServiceRoleKey && token === config.supabaseServiceRoleKey);
+
+      if (!isAuthorized) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'unauthorized',
+            message: 'Operación administrativa denegada: sync-batch requiere autorización explícita de service_role',
+          }),
+          { status: 401, headers: corsHeaders }
+        );
+      }
+
       const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 100);
       const cursor = url.searchParams.get('cursor') || undefined;
       const updatedSince = url.searchParams.get('updated_since') || undefined;

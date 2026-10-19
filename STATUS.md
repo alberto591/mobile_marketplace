@@ -1,8 +1,8 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
 - **Fecha de actualización:** 2026-10-19
-- **Fase activa:** Fase 2 — Integración de Desguaces Reales (Paso 5 Completado: Catálogo Persistente, Sincronización Segura y Flujo End-to-End)
-- **Estado de pruebas:** 69 pruebas automatizadas pasando al 100% (50 en `@mobile-marketplace/core`, 19 en `@mobile-marketplace/mobile`)
+- **Fase activa:** Fase 2 — Paso 6: Staging, Auditoría de Seguridad y Primera Sincronización Real
+- **Estado de pruebas:** 73 pruebas automatizadas pasando al 100% (54 en `@mobile-marketplace/core`, 19 en `@mobile-marketplace/mobile`)
 - **Compilación móvil:** Bundle iOS para Hermes compilado y verificado con éxito (1.192 módulos empaquetados sin errores)
 - **Vulnerabilidades en dependencias:** 0 vulnerabilidades en `@mobile-marketplace/core`
 
@@ -10,54 +10,30 @@
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se ha completado con éxito el **Paso 5 — Catálogo Persistente y Flujo End-to-End**:
+Se han completado las **Fases A y B del Paso 6 (Auditoría de Seguridad y Endurecimiento)**:
 
-1. **Refinamientos de Persistencia y Migración Canónica:**
-   - Migración [supabase/migrations/20261019000002_catalog_persistence_refinements.sql](supabase/migrations/20261019000002_catalog_persistence_refinements.sql) que añade soporte para `donor_vehicle_code` en `part_vehicles`, `reference_type` (`OEM_OFFICIAL`, `REFERENCIA_VISUAL`, `CATALOGO_PROVEEDOR`, `CROSS_REFERENCE`) en `part_oem_references`, y `deleted_at` para bajas lógicas en `parts`.
-   - Proyección pública segura `public_catalog_parts` protegida por RLS que agrega las piezas no eliminadas y vendedores activos sin exponer secretos de integración ni tablas administrativas.
-2. **Motor de Sincronización Idempotente:**
-   - Implementado `EurodesguaceSyncEngine` en `packages/core/src/adapters/eurodesguace/eurodesguace-sync-engine.ts`.
-   - Orquesta lotes con cursor (`sig_refid`), validación Zod, normalización canónica, upsert idempotente y gestión de bajas lógicas sin borrado destructivo.
-   - Si una petición intermedia falla, el motor aborta el lote sin avanzar indebidamente el cursor.
-3. **Servicio de Catálogo Backend y Desacoplamiento de Mocks:**
-   - Implementado `BackendCatalogService` en `apps/mobile/services/backend-catalog.service.ts` implementando el contrato `ICatalogService`. Consulta la vista `public_catalog_parts` vía PostgREST con la clave anon pública.
-   - En caso de caída de backend o red en modo real, el servicio lanza `BackendCatalogError` (Fail Fast) sin encubrir fallos con datos simulados.
-   - Factoría `createCatalogService` en `apps/mobile/services/catalog-service.factory.ts` que permite seleccionar explícitamente entre `mock` y `backend` vía variable de entorno `EXPO_PUBLIC_CATALOG_DATA_SOURCE`.
-   - `MockCatalogService` desacoplado: las muestras de Eurodesguace se pueden habilitar/deshabilitar limpiamente mediante opciones.
-4. **Ficha de Recambio y Búsqueda Segura:**
-   - Visualización de `donorVehicleCode` ("Código vehículo donante").
-   - Las referencias visuales (`refvisual`) se aíslan explícitamente y nunca otorgan compatibilidad garantizada (`isGuaranteed: false`).
-   - Advertencia de stock en ficha técnica informando que el catálogo del CAT se actualiza diariamente y la disponibilidad física final requiere confirmación del vendedor.
-5. **Decisión de Arquitectura Documentada:**
-   - [docs/ADRs/004-backend-catalog-persistence-and-secure-client-access.md](docs/ADRs/004-backend-catalog-persistence-and-secure-client-access.md).
+1. **Auditoría de Seguridad de la Vista Pública y RLS:**
+   - Detectada la ausencia de `WITH (security_invoker = true, security_barrier = true)` en la vista previa.
+   - Detectada la necesidad de incorporar explícitamente `AND deleted_at IS NULL` en la política RLS de la tabla `parts`.
+   - Se implementó la migración correctiva [20261019000003_view_security_hardening.sql](supabase/migrations/20261019000003_view_security_hardening.sql) que:
+     - Recrea `public_catalog_parts` con `WITH (security_invoker = true, security_barrier = true)`.
+     - Actualiza la política `Public read for available parts` en `parts` forzando `deleted_at IS NULL`.
+     - Ejecuta `REVOKE ALL ON source_integrations, sync_logs FROM anon, authenticated, public` garantizando que las credenciales internas y logs de sincronización no sean descubribles por PostgREST.
+     - Concede permisos `SELECT` estrictamente de solo lectura a roles `anon` y `authenticated` en las tablas del catálogo.
+2. **Protección Administrativa en la Edge Function:**
+   - La acción `sync-batch` en [supabase/functions/eurodesguace-sync/index.ts](supabase/functions/eurodesguace-sync/index.ts) ahora exige obligatoriamente autorización administrativa con `service_role` o `SYNC_ADMIN_SECRET` devolviendo HTTP 401 Unauthorized ante llamadas anónimas.
+   - Acciones públicas `health` y `sample-parts` sanitizan los datos sin exponer claves de API ni tokens en ningún escenario.
+3. **Estado de Staging y Preparación Remota:**
+   - Verificado el CLI de Supabase: no existe proyecto de staging vinculado (`supabase link`) ni token de acceso activo.
+   - Verificado el entorno local: Docker no se encuentra en ejecución (`DOCKER_NOT_RUNNING`).
+   - Cero credenciales filtradas en Git o en el bundle de Expo.
+   - Se han documentado las instrucciones no destructivas para vincular el entorno de staging autorizado sin exponer claves de producción.
 
 ---
 
-## 2. Componentes de la Aplicación Móvil (`apps/mobile`)
+## 2. Cobertura de Pruebas Automatizadas
 
-### Rutas de Expo Router (`apps/mobile/app`)
-- **`app/_layout.tsx`:** Navegador Stack principal con barra de estado y estilos acordes a la identidad visual automovilística.
-- **`app/index.tsx`:** Pantalla de inicio con formulario estructurado de búsqueda multimodal y sugerencias rápidas.
-- **`app/results.tsx`:** Pantalla de resultados con filtros interactivos por desguace (Eurodesguace Málaga, Desguace Alpha, Desguaces Beta), disponibilidad en stock y ordenación determinista.
-- **`app/part/[id].tsx`:** Ficha técnica de pieza con galería de fotos reales de Eurodesguace, distinción visual de referencias, código donante `donorVehicleCode`, datos mecánicos del donante y advertencia honesta de stock sujeto a verificación diaria en CAT.
-
-### Componentes de Presentación (`apps/mobile/components`)
-- **`CompatibilityBadge`:** Comunica con rigor técnico la compatibilidad de la pieza (garantizado sólo con OEM oficial idéntico).
-- **`PartCard`:** Tarjeta de recambio con soporte para piezas con múltiples fotografías, sin foto o con donantes parciales.
-- **`InquiryModal`:** Modal de consulta estructurada y solicitud de disponibilidad sin pasarelas ficticias de pago.
-- **`EmptyState`:** Estado visual cuando una búsqueda o filtro devuelve 0 resultados.
-
-### Servicios e Integración (`apps/mobile/services`)
-- **`ICatalogService`:** Contrato canónico de consulta preservado al 100%.
-- **`BackendCatalogService`:** Consulta la proyección `public_catalog_parts` en Supabase con RLS y mapeo a tipos de dominio.
-- **`MockCatalogService`:** Servicio de desarrollo local y pruebas offline con soporte para proveedores A y B y muestras opcionales de Eurodesguace.
-- **`catalogService`:** Singleton obtenido de la factoría según `EXPO_PUBLIC_CATALOG_DATA_SOURCE`.
-
----
-
-## 3. Cobertura de Pruebas Automatizadas
-
-Se ejecutan **69 pruebas automatizadas** pasando al 100% con Vitest:
+Se ejecutan **73 pruebas automatizadas** pasando al 100% con Vitest:
 
 | Módulo / Archivo | Pruebas | Estado | Cobertura |
 |---|---|---|---|
@@ -69,16 +45,17 @@ Se ejecutan **69 pruebas automatizadas** pasando al 100% con Vitest:
 | `packages/core/test/mock-adapters.test.ts` | 10 | Superado | Paginación, capacidades opcionales, consulta de stock y 404 |
 | `packages/core/test/eurodesguace-adapter.test.ts` | 11 | Superado | Parsing de coma decimal, Zod schemas, 429 Retry-After, cursor, confidencialidad |
 | `packages/core/test/eurodesguace-sync-engine.test.ts` | 5 | Superado | Idempotencia, paginación con cursor, bajas lógicas, fallo intermedio, métricas |
+| `packages/core/test/sync-edge-function-security.test.ts` | 4 | Superado | Autorización de sync-batch (401), token inválido, sanitized health check |
 | `apps/mobile/test/catalog-service.test.ts` | 12 | Superado | Agregación multi-proveedor, filtrado por Eurodesguace Málaga, referencias visuales |
 | `apps/mobile/test/backend-catalog-service.test.ts` | 7 | Superado | Consulta PostgREST, headers anon, filtros, OEM vs visual, getPartById, Fail Fast, factoría |
 
 ---
 
-## 4. Instrucciones para Ejecución Local
+## 3. Instrucciones para Ejecución Local
 
 ### Comprobación de Pruebas y Tipado
 ```bash
-# Ejecutar los 69 tests del monorepo
+# Ejecutar los 73 tests del monorepo
 npm test
 
 # Comprobar tipado TypeScript estricto en core y mobile
@@ -90,16 +67,12 @@ npm run typecheck
 python3 scripts/test_eurodesguace_connection.py
 ```
 
-### Iniciar la Aplicación Móvil con Expo
-```bash
-# Iniciar servidor de desarrollo Metro
-npm run start --workspace=@mobile-marketplace/mobile
-```
-
 ---
 
-## 5. Próximos Pasos (Fase 3: Persistencia en Supabase y Segundo Proveedor Real)
+## 4. Próximos Pasos para Desbloqueo de Staging (Fases C, D, F)
 
-1. Conexión de Supabase CLI con proyecto de desarrollo local (`supabase start`) y aplicación de migraciones `20261019000000` y `20261019000001`.
-2. Ejecución de la primera sincronización por lotes controlada (500 piezas) hacia la base de datos de desarrollo.
-3. Sustitución de Desguaces Beta (segundo proveedor simulado) cuando se disponga de la documentación de su API.
+1. Autenticar CLI en sesión local mediante `npx supabase login`.
+2. Vincular proyecto de staging independiente mediante `npx supabase link --project-ref <staging-project-ref>`.
+3. Configurar secreto de backend en staging: `npx supabase secrets set EURODESGUACE_API_KEY=...`.
+4. Ejecutar simulación `npx supabase db push --dry-run` para validar la aplicación de las 4 migraciones.
+5. Tras autorización explícita, ejecutar `npx supabase db push` e importar un lote piloto limitado de 50 piezas para comprobar idempotencia física y lectura en la app móvil.
