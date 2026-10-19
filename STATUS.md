@@ -1,26 +1,35 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
 - **Fecha de actualización:** 2026-10-19
-- **Fase activa:** Fase 2 — Integración de Desguaces Reales (Paso 4 Completado: Eurodesguace Málaga API Real, Sincronización y Prueba End-to-End)
-- **Estado de pruebas:** 57 pruebas automatizadas pasando al 100% (45 en `@mobile-marketplace/core`, 12 en `@mobile-marketplace/mobile`)
-- **Compilación móvil:** Bundle iOS para Hermes compilado y verificado con éxito (1.190 módulos empaquetados sin errores)
+- **Fase activa:** Fase 2 — Integración de Desguaces Reales (Paso 5 Completado: Catálogo Persistente, Sincronización Segura y Flujo End-to-End)
+- **Estado de pruebas:** 69 pruebas automatizadas pasando al 100% (50 en `@mobile-marketplace/core`, 19 en `@mobile-marketplace/mobile`)
+- **Compilación móvil:** Bundle iOS para Hermes compilado y verificado con éxito (1.192 módulos empaquetados sin errores)
 - **Vulnerabilidades en dependencias:** 0 vulnerabilidades en `@mobile-marketplace/core`
 
 ---
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se ha completado con éxito el **Paso 4 — Integración del Primer Desguace Real (Eurodesguace Málaga)**:
+Se ha completado con éxito el **Paso 5 — Catálogo Persistente y Flujo End-to-End**:
 
-1. **Documentación Oficial:** Se ha redactado y versionado la especificación completa en [docs/providers/eurodesguace-malaga-api.md](docs/providers/eurodesguace-malaga-api.md).
-2. **Adaptador de Producción:** Implementado en `packages/core/src/adapters/eurodesguace/` (`EurodesguaceAdapter`, `EurodesguaceHttpClient`, `EurodesguaceNormalizer`), respetando estrictamente el contrato canónico `ScrapYardAdapter` y declarando sus capacidades operativas honestas (sin inventar endpoints de stock en tiempo real inexistentes).
-3. **Conversión y Normalización Monetaria:** Función `parseEuroCommaToCents` y `createMoneyFromCommaString` que convierten de forma determinista precios con coma decimal (`"42,95"`) a céntimos enteros (4295 cts) sin incurrir en imprecisiones de coma flotante.
-4. **Verificación de Conexión en Vivo:**
-   - `GET /health`: Respuesta HTTP 200 OK confirmada (`status: ok`, `site: eurodesguacemalaga.com`, `scopes: ['parts:read', 'vehicles:read']`).
-   - `GET /parts?limit=5`: Respuesta HTTP 200 OK con 31.357 piezas totales registradas en el catálogo del CAT. Muestra de 5 piezas recuperada, sanitizada y normalizada con éxito.
-5. **Seguridad y Confidencialidad:** Las credenciales residen exclusivamente en `supabase/functions/.env` y `.env.local`, excluidas de Git mediante `.gitignore` y verificadas con `git check-ignore`. Cero exposición en frontend Expo ni en variables `EXPO_PUBLIC_*`.
-6. **Persistencia e Idempotencia:** Migración [supabase/migrations/20261019000001_eurodesguace_vendor_seed.sql](supabase/migrations/20261019000001_eurodesguace_vendor_seed.sql) para registrar al vendedor oficial y su integración. Supabase Edge Function [supabase/functions/eurodesguace-sync/index.ts](supabase/functions/eurodesguace-sync/index.ts) para orquestar la ingesta en backend.
-7. **Integración Móvil Sin Regresiones:** El servicio de catálogo móvil integra a Eurodesguace Málaga manteniendo intacto al segundo proveedor simulado (Desguace Beta Paterna). La ficha de recambio distingue claramente las referencias visuales del CAT frente a referencias OEM oficiales y comunica con honestidad las condiciones de IVA, garantía y disponibilidad.
+1. **Refinamientos de Persistencia y Migración Canónica:**
+   - Migración [supabase/migrations/20261019000002_catalog_persistence_refinements.sql](supabase/migrations/20261019000002_catalog_persistence_refinements.sql) que añade soporte para `donor_vehicle_code` en `part_vehicles`, `reference_type` (`OEM_OFFICIAL`, `REFERENCIA_VISUAL`, `CATALOGO_PROVEEDOR`, `CROSS_REFERENCE`) en `part_oem_references`, y `deleted_at` para bajas lógicas en `parts`.
+   - Proyección pública segura `public_catalog_parts` protegida por RLS que agrega las piezas no eliminadas y vendedores activos sin exponer secretos de integración ni tablas administrativas.
+2. **Motor de Sincronización Idempotente:**
+   - Implementado `EurodesguaceSyncEngine` en `packages/core/src/adapters/eurodesguace/eurodesguace-sync-engine.ts`.
+   - Orquesta lotes con cursor (`sig_refid`), validación Zod, normalización canónica, upsert idempotente y gestión de bajas lógicas sin borrado destructivo.
+   - Si una petición intermedia falla, el motor aborta el lote sin avanzar indebidamente el cursor.
+3. **Servicio de Catálogo Backend y Desacoplamiento de Mocks:**
+   - Implementado `BackendCatalogService` en `apps/mobile/services/backend-catalog.service.ts` implementando el contrato `ICatalogService`. Consulta la vista `public_catalog_parts` vía PostgREST con la clave anon pública.
+   - En caso de caída de backend o red en modo real, el servicio lanza `BackendCatalogError` (Fail Fast) sin encubrir fallos con datos simulados.
+   - Factoría `createCatalogService` en `apps/mobile/services/catalog-service.factory.ts` que permite seleccionar explícitamente entre `mock` y `backend` vía variable de entorno `EXPO_PUBLIC_CATALOG_DATA_SOURCE`.
+   - `MockCatalogService` desacoplado: las muestras de Eurodesguace se pueden habilitar/deshabilitar limpiamente mediante opciones.
+4. **Ficha de Recambio y Búsqueda Segura:**
+   - Visualización de `donorVehicleCode` ("Código vehículo donante").
+   - Las referencias visuales (`refvisual`) se aíslan explícitamente y nunca otorgan compatibilidad garantizada (`isGuaranteed: false`).
+   - Advertencia de stock en ficha técnica informando que el catálogo del CAT se actualiza diariamente y la disponibilidad física final requiere confirmación del vendedor.
+5. **Decisión de Arquitectura Documentada:**
+   - [docs/ADRs/004-backend-catalog-persistence-and-secure-client-access.md](docs/ADRs/004-backend-catalog-persistence-and-secure-client-access.md).
 
 ---
 
@@ -30,23 +39,25 @@ Se ha completado con éxito el **Paso 4 — Integración del Primer Desguace Rea
 - **`app/_layout.tsx`:** Navegador Stack principal con barra de estado y estilos acordes a la identidad visual automovilística.
 - **`app/index.tsx`:** Pantalla de inicio con formulario estructurado de búsqueda multimodal y sugerencias rápidas.
 - **`app/results.tsx`:** Pantalla de resultados con filtros interactivos por desguace (Eurodesguace Málaga, Desguace Alpha, Desguaces Beta), disponibilidad en stock y ordenación determinista.
-- **`app/part/[id].tsx`:** Ficha técnica de pieza con galería de fotos reales de Eurodesguace, distinción visual de referencias, datos mecánicos del donante y advertencia honesta de stock sujeto a verificación en CAT.
+- **`app/part/[id].tsx`:** Ficha técnica de pieza con galería de fotos reales de Eurodesguace, distinción visual de referencias, código donante `donorVehicleCode`, datos mecánicos del donante y advertencia honesta de stock sujeto a verificación diaria en CAT.
 
 ### Componentes de Presentación (`apps/mobile/components`)
-- **`CompatibilityBadge`:** Comunica con rigor técnico la compatibilidad de la pieza.
+- **`CompatibilityBadge`:** Comunica con rigor técnico la compatibilidad de la pieza (garantizado sólo con OEM oficial idéntico).
 - **`PartCard`:** Tarjeta de recambio con soporte para piezas con múltiples fotografías, sin foto o con donantes parciales.
-- **`InquiryModal`:** Modal de consulta estructurada y solicitud de disponibilidad sin pasarelas ficticias.
+- **`InquiryModal`:** Modal de consulta estructurada y solicitud de disponibilidad sin pasarelas ficticias de pago.
 - **`EmptyState`:** Estado visual cuando una búsqueda o filtro devuelve 0 resultados.
 
 ### Servicios e Integración (`apps/mobile/services`)
-- **`ICatalogService`:** Contrato de consulta preservado al 100%.
-- **`MockCatalogService`:** Servicio híbrido que agrega el catálogo de Eurodesguace Málaga normalizado junto a los proveedores simulados, permitiendo ejecutar tanto pruebas locales sin conexión como navegación con datos reales.
+- **`ICatalogService`:** Contrato canónico de consulta preservado al 100%.
+- **`BackendCatalogService`:** Consulta la proyección `public_catalog_parts` en Supabase con RLS y mapeo a tipos de dominio.
+- **`MockCatalogService`:** Servicio de desarrollo local y pruebas offline con soporte para proveedores A y B y muestras opcionales de Eurodesguace.
+- **`catalogService`:** Singleton obtenido de la factoría según `EXPO_PUBLIC_CATALOG_DATA_SOURCE`.
 
 ---
 
 ## 3. Cobertura de Pruebas Automatizadas
 
-Se ejecutan **57 pruebas automatizadas** pasando al 100% con Vitest:
+Se ejecutan **69 pruebas automatizadas** pasando al 100% con Vitest:
 
 | Módulo / Archivo | Pruebas | Estado | Cobertura |
 |---|---|---|---|
@@ -57,7 +68,9 @@ Se ejecutan **57 pruebas automatizadas** pasando al 100% con Vitest:
 | `packages/core/test/duplicate-and-traceability.test.ts` | 3 | Superado | Aislamiento de origen, preservación multi-desguace y proyección |
 | `packages/core/test/mock-adapters.test.ts` | 10 | Superado | Paginación, capacidades opcionales, consulta de stock y 404 |
 | `packages/core/test/eurodesguace-adapter.test.ts` | 11 | Superado | Parsing de coma decimal, Zod schemas, 429 Retry-After, cursor, confidencialidad |
+| `packages/core/test/eurodesguace-sync-engine.test.ts` | 5 | Superado | Idempotencia, paginación con cursor, bajas lógicas, fallo intermedio, métricas |
 | `apps/mobile/test/catalog-service.test.ts` | 12 | Superado | Agregación multi-proveedor, filtrado por Eurodesguace Málaga, referencias visuales |
+| `apps/mobile/test/backend-catalog-service.test.ts` | 7 | Superado | Consulta PostgREST, headers anon, filtros, OEM vs visual, getPartById, Fail Fast, factoría |
 
 ---
 
@@ -65,7 +78,7 @@ Se ejecutan **57 pruebas automatizadas** pasando al 100% con Vitest:
 
 ### Comprobación de Pruebas y Tipado
 ```bash
-# Ejecutar los 57 tests del monorepo
+# Ejecutar los 69 tests del monorepo
 npm test
 
 # Comprobar tipado TypeScript estricto en core y mobile

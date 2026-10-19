@@ -32,6 +32,7 @@ export interface Vehicle {
   readonly bodyType?: string;
   readonly doors?: number;
   readonly donorVinMasked?: string;
+  readonly donorVehicleCode?: string;
 }
 
 export interface VehicleTargetCriteria {

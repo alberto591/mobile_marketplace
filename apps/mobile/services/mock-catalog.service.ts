@@ -21,15 +21,22 @@ import type {
   SearchFilters,
   SearchResultItem,
 } from './catalog-service.interface';
+import { BackendCatalogService } from './backend-catalog.service';
+
+export interface MockCatalogServiceOptions {
+  readonly includeEurodesguaceSample?: boolean;
+}
 
 export class MockCatalogService implements ICatalogService {
   private readonly adapterA: MockScrapYardAAdapter;
   private readonly adapterB: MockScrapYardBAdapter;
   private readonly vendors: Map<string, Vendor>;
+  private readonly includeEurodesguaceSample: boolean;
 
-  constructor() {
+  constructor(options: MockCatalogServiceOptions = {}) {
     this.adapterA = new MockScrapYardAAdapter();
     this.adapterB = new MockScrapYardBAdapter();
+    this.includeEurodesguaceSample = options.includeEurodesguaceSample ?? true;
 
     this.vendors = new Map<string, Vendor>([
       [
@@ -210,24 +217,26 @@ export class MockCatalogService implements ICatalogService {
       });
     }
 
-    // 3. Ingest Real Provider (Eurodesguace Málaga) from verified real catalog fixtures
-    try {
-      for (const raw of EURODESGUACE_REAL_SAMPLE_PARTS) {
-        const normResult = normalizeEurodesguacePart(raw, 'vendor_eurodesguace');
-        if (normResult.success) {
-          parts.push(normResult.data);
-        } else {
-          errors.push({
-            providerId: 'eurodesguace_malaga',
-            message: normResult.error.message,
-          });
+    // 3. Ingest Provider Real (Eurodesguace Málaga) from verified real fixtures if enabled
+    if (this.includeEurodesguaceSample) {
+      try {
+        for (const raw of EURODESGUACE_REAL_SAMPLE_PARTS) {
+          const normResult = normalizeEurodesguacePart(raw, 'vendor_eurodesguace');
+          if (normResult.success) {
+            parts.push(normResult.data);
+          } else {
+            errors.push({
+              providerId: 'eurodesguace_malaga',
+              message: normResult.error.message,
+            });
+          }
         }
+      } catch (e) {
+        errors.push({
+          providerId: 'eurodesguace_malaga',
+          message: e instanceof Error ? e.message : 'Error al procesar recambios de Eurodesguace Málaga',
+        });
       }
-    } catch (e) {
-      errors.push({
-        providerId: 'eurodesguace_malaga',
-        message: e instanceof Error ? e.message : 'Error al procesar recambios de Eurodesguace Málaga',
-      });
     }
 
     this.cachedParts = parts;
@@ -426,5 +435,13 @@ export class MockCatalogService implements ICatalogService {
   }
 }
 
-// Export singleton instance for app usage
-export const catalogService: ICatalogService = new MockCatalogService();
+// Export singleton instance and getter for app usage
+export function getCatalogService(): ICatalogService {
+  if (process.env.EXPO_PUBLIC_CATALOG_DATA_SOURCE === 'backend') {
+    return new BackendCatalogService();
+  }
+  return new MockCatalogService();
+}
+
+export const catalogService: ICatalogService = getCatalogService();
+

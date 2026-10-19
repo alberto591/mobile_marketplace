@@ -228,6 +228,13 @@ export default function PartDetailScreen() {
                   </View>
                 )}
 
+                {part.donorVehicle.donorVehicleCode && (
+                  <View style={styles.specRow}>
+                    <Text style={styles.specKey}>Código vehículo donante</Text>
+                    <Text style={styles.specVal}>{part.donorVehicle.donorVehicleCode}</Text>
+                  </View>
+                )}
+
                 {part.donorVehicle.donorVinMasked && (
                   <View style={styles.specRow}>
                     <Text style={styles.specKey}>Bastidor anonimizado</Text>
@@ -308,6 +315,9 @@ export default function PartDetailScreen() {
                 hour: '2-digit',
                 minute: '2-digit',
               })}
+            </Text>
+            <Text style={styles.disclaimerText}>
+              Aviso de disponibilidad: El inventario del CAT se actualiza con frecuencia diaria. La disponibilidad final en el almacén físico debe ser confirmada previamente por el vendedor.
             </Text>
           </View>
         </View>
@@ -564,6 +574,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+  },
+  disclaimerText: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+    marginTop: 4,
+    lineHeight: 15,
   },
   floatingBar: {
     position: 'absolute',

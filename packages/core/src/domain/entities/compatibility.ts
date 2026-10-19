@@ -65,6 +65,20 @@ export function evaluateCompatibility(context: CompatibilityEvaluationContext): 
   if (targetOEMReference) {
     for (const oem of partOemReferences) {
       if (areOEMReferencesEqual(oem, targetOEMReference)) {
+        // Guardrail: A visual reference (refvisual) is an internal supplier reference, NOT an official verified OEM
+        if (oem.referenceType === 'REFERENCIA_VISUAL' || oem.brandName === 'REFERENCIA_VISUAL') {
+          return Object.freeze({
+            confidence: 'ATTRIBUTES_MATCH',
+            evidenceSource: 'DONOR_ATTRIBUTES_ONLY',
+            isGuaranteed: false,
+            confidenceScore: 0.5,
+            evidenceSummary: `Coincide con la referencia visual del desguace (${oem.normalized}), no garantizada como OEM oficial`,
+            userAdvice:
+              'La coincidencia es únicamente con la referencia visual o etiqueta del CAT. Comprueba la referencia troquelada en tu pieza original.',
+            matchedOEM: oem.normalized,
+          });
+        }
+
         // If user also specified a target vehicle, check whether it matches or conflicts with donor
         if (targetVehicle && partDonorVehicle) {
           const makeMatches =

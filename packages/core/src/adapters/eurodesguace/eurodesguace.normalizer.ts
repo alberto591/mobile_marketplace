@@ -76,31 +76,33 @@ export function normalizeEurodesguacePart(
 
   // 2. Safe OEM / Visual Reference normalization
   const oemReferences: ReturnType<typeof createOEMReference>[] = [];
-  if (raw.refvisual && raw.refvisual.trim().length >= 3) {
-    try {
-      oemReferences.push(
-        createOEMReference({
-          raw: raw.refvisual.trim(),
-          isPrimary: true,
-          brandName: 'REFERENCIA_VISUAL',
-        })
-      );
-    } catch {
-      // If reference fails strict OEM syntax (e.g. invalid symbols), do not crash the part
-    }
-  }
-
   if (raw.refcatalogo && raw.refcatalogo.trim().length >= 3) {
     try {
       oemReferences.push(
         createOEMReference({
           raw: raw.refcatalogo.trim(),
-          isPrimary: oemReferences.length === 0,
+          isPrimary: true,
           brandName: 'CATALOGO_PROVEEDOR',
+          referenceType: 'CATALOGO_PROVEEDOR',
         })
       );
     } catch {
       // Ignore invalid catalog reference
+    }
+  }
+
+  if (raw.refvisual && raw.refvisual.trim().length >= 3) {
+    try {
+      oemReferences.push(
+        createOEMReference({
+          raw: raw.refvisual.trim(),
+          isPrimary: oemReferences.length === 0,
+          brandName: 'REFERENCIA_VISUAL',
+          referenceType: 'REFERENCIA_VISUAL',
+        })
+      );
+    } catch {
+      // If reference fails strict OEM syntax (e.g. invalid symbols), do not crash the part
     }
   }
 
@@ -113,6 +115,7 @@ export function normalizeEurodesguacePart(
           yearFrom: raw.anopieza ?? undefined,
           yearTo: raw.anopieza ?? undefined,
           engineCode: raw.motorversion ?? undefined,
+          donorVehicleCode: raw.codvehiculo ?? undefined,
         })
       : undefined;
 

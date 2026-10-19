@@ -3,11 +3,18 @@
  * OEM (Original Equipment Manufacturer) references are the single most reliable signal
  * for parts interchangeability. Normalization eliminates formatting differences without losing identity.
  */
+export type OEMReferenceType =
+  | 'OEM_OFFICIAL'
+  | 'REFERENCIA_VISUAL'
+  | 'CATALOGO_PROVEEDOR'
+  | 'CROSS_REFERENCE';
+
 export interface OEMReference {
   readonly raw: string;
   readonly normalized: string;
   readonly isPrimary: boolean;
   readonly brandName?: string;
+  readonly referenceType?: OEMReferenceType;
 }
 
 export class InvalidOEMReferenceError extends Error {
@@ -45,6 +52,7 @@ export function createOEMReference(params: {
   raw: string;
   isPrimary?: boolean;
   brandName?: string;
+  referenceType?: OEMReferenceType;
 }): OEMReference {
   const normalized = normalizeOEMReference(params.raw);
   return Object.freeze({
@@ -52,6 +60,9 @@ export function createOEMReference(params: {
     normalized,
     isPrimary: params.isPrimary ?? true,
     brandName: params.brandName?.trim(),
+    referenceType:
+      params.referenceType ??
+      (params.brandName === 'REFERENCIA_VISUAL' ? 'REFERENCIA_VISUAL' : 'OEM_OFFICIAL'),
   });
 }
 

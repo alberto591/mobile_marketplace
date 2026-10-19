@@ -27,10 +27,18 @@ export const AvailabilitySchema = z.object({
   statusReason: z.string().optional(),
 });
 
+export const OEMReferenceTypeSchema = z.enum([
+  'OEM_OFFICIAL',
+  'REFERENCIA_VISUAL',
+  'CATALOGO_PROVEEDOR',
+  'CROSS_REFERENCE',
+]);
+
 export const OEMReferenceInputSchema = z.object({
   raw: z.string().min(2, { message: 'OEM reference must have at least 2 characters' }),
   isPrimary: z.boolean().default(true),
   brandName: z.string().optional(),
+  referenceType: OEMReferenceTypeSchema.optional(),
 });
 
 export const FuelTypeSchema = z.enum([
@@ -65,6 +73,7 @@ export const VehicleSchema = z.object({
   bodyType: z.string().optional(),
   doors: z.number().int().positive().optional(),
   donorVinMasked: z.string().optional(),
+  donorVehicleCode: z.string().optional(),
 });
 
 export const PartConditionSchema = z.enum([
