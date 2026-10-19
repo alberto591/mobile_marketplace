@@ -37,6 +37,23 @@ describe('Compatibility Evaluation Engine', () => {
     expect(signal.matchedOEM).toBe('1K0121205AD');
   });
 
+  it('yields EXACT_OEM_MATCH with isGuaranteed=FALSE when OEM matches but target vehicle conflicts with donor', () => {
+    const signal = evaluateCompatibility({
+      partOemReferences: sampleOemRefs,
+      partDonorVehicle: sampleDonorVehicle, // Volkswagen Golf V
+      targetOEMReference: '1K0121205AD',
+      targetVehicle: {
+        make: 'FORD', // Conflicting vehicle!
+        model: 'FOCUS',
+      },
+    });
+
+    expect(signal.confidence).toBe('EXACT_OEM_MATCH');
+    expect(signal.isGuaranteed).toBe(false); // Flagged because vehicle differs
+    expect(signal.confidenceScore).toBeLessThan(1.0);
+    expect(signal.evidenceSummary).toContain('difiere de tu vehículo');
+  });
+
   it('yields ATTRIBUTES_MATCH with isGuaranteed=FALSE when only vehicle make and model match without OEM', () => {
     const signal = evaluateCompatibility({
       partOemReferences: [], // No OEM reference known

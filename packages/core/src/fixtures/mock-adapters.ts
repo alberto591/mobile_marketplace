@@ -1,6 +1,13 @@
-import { randomUUID } from 'node:crypto';
 import type { Result } from '../domain/common/result.js';
 import { err } from '../domain/common/result.js';
+
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 import { createAvailability } from '../domain/entities/availability.js';
 import { createMoney, createMoneyFromDecimal } from '../domain/entities/money.js';
 import { createOEMReference } from '../domain/entities/oem-reference.js';
@@ -145,7 +152,7 @@ export class MockScrapYardAAdapter implements ScrapYardAdapter<RawProviderAPart>
 
       // Candidate unvalidated object
       const candidate = {
-        id: randomUUID(),
+        id: generateUUID(),
         vendorId,
         source: {
           providerId: this.providerId,
@@ -291,7 +298,7 @@ export class MockScrapYardBAdapter implements ScrapYardAdapter<RawProviderBPart>
       }));
 
       const candidate = {
-        id: randomUUID(),
+        id: generateUUID(),
         vendorId,
         source: {
           providerId: this.providerId,

@@ -85,13 +85,19 @@ mobile-marketplace/
 - npm (version 10 o superior; version verificada en entorno: 11.5.1).
 - Git (version 2.40 o superior).
 
-### Ejecucion de Pruebas y Tipado del Dominio
+### Ejecucion de Pruebas y Tipado del Monorepo
 ```bash
-# Ejecutar todas las pruebas unitarias y de integracion (33 tests)
+# Ejecutar todas las pruebas unitarias y de integracion (44 tests)
 npm test
 
-# Comprobar tipado estricto con TypeScript
+# Comprobar tipado estricto con TypeScript en todos los paquetes
 npm run typecheck
+```
+
+### Iniciar la Aplicacion Movil con Expo
+```bash
+# Iniciar servidor de desarrollo Metro
+cd apps/mobile && npx expo start
 ```
 
 ---

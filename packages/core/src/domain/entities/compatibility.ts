@@ -38,6 +38,22 @@ export interface CompatibilityEvaluationContext {
   readonly targetVehicle?: VehicleTargetCriteria;
 }
 
+function modelsAreCompatible(donorModel: string, targetModel: string): boolean {
+  const normDonor = normalizeVehicleModel(donorModel);
+  const normTarget = normalizeVehicleModel(targetModel);
+  if (normDonor === normTarget) return true;
+  // Strip generation suffixes in parentheses e.g. "GOLF V (1K1)" -> "GOLF V"
+  const cleanDonor = normDonor.replace(/\s*\(.*?\)/g, '').trim();
+  const cleanTarget = normTarget.replace(/\s*\(.*?\)/g, '').trim();
+  return (
+    cleanDonor === cleanTarget ||
+    normDonor.includes(normTarget) ||
+    normTarget.includes(normDonor) ||
+    cleanDonor.includes(cleanTarget) ||
+    cleanTarget.includes(cleanDonor)
+  );
+}
+
 /**
  * Pure evaluation engine for parts compatibility.
  * Strictly enforces that brand/model/year matches NEVER imply guaranteed compatibility.
@@ -45,17 +61,36 @@ export interface CompatibilityEvaluationContext {
 export function evaluateCompatibility(context: CompatibilityEvaluationContext): CompatibilitySignal {
   const { partOemReferences, partDonorVehicle, targetOEMReference, targetVehicle } = context;
 
-  // Signal 1: Exact OEM Reference Match (Strongest signal)
+  // Signal 1: OEM Reference Match
   if (targetOEMReference) {
     for (const oem of partOemReferences) {
       if (areOEMReferencesEqual(oem, targetOEMReference)) {
+        // If user also specified a target vehicle, check whether it matches or conflicts with donor
+        if (targetVehicle && partDonorVehicle) {
+          const makeMatches =
+            normalizeVehicleMake(partDonorVehicle.make) === normalizeVehicleMake(targetVehicle.make);
+          const modelMatches = modelsAreCompatible(partDonorVehicle.model, targetVehicle.model);
+
+          if (!makeMatches || !modelMatches) {
+            return Object.freeze({
+              confidence: 'EXACT_OEM_MATCH',
+              evidenceSource: 'OEM_EXACT_REFERENCE',
+              isGuaranteed: false, // Discrepancy between OEM and target vehicle
+              confidenceScore: 0.8,
+              evidenceSummary: `Coincide la referencia OEM (${oem.normalized}), pero el vehículo donante (${partDonorVehicle.make} ${partDonorVehicle.model}) difiere de tu vehículo (${targetVehicle.make} ${targetVehicle.model})`,
+              userAdvice: 'La referencia OEM coincide con la solicitada, pero el vehículo no coincide con el donante. Comprueba exhaustivamente si tu recambio original monta esta referencia.',
+              matchedOEM: oem.normalized,
+            });
+          }
+        }
+
         return Object.freeze({
           confidence: 'EXACT_OEM_MATCH',
           evidenceSource: 'OEM_EXACT_REFERENCE',
           isGuaranteed: true,
           confidenceScore: 1.0,
-          evidenceSummary: `Coincidencia exacta con la referencia OEM: ${oem.normalized}`,
-          userAdvice: 'Referencia OEM verificada. Esta pieza es el recambio original idéntico para tu vehículo.',
+          evidenceSummary: `Coincidencia exacta con la referencia OEM oficial: ${oem.normalized}`,
+          userAdvice: 'Referencia OEM verificada. Comprueba que esta referencia figure en la pieza desmontada de tu vehículo.',
           matchedOEM: oem.normalized,
         });
       }
@@ -66,8 +101,7 @@ export function evaluateCompatibility(context: CompatibilityEvaluationContext): 
   if (targetVehicle && partDonorVehicle) {
     const makeMatches =
       normalizeVehicleMake(partDonorVehicle.make) === normalizeVehicleMake(targetVehicle.make);
-    const modelMatches =
-      normalizeVehicleModel(partDonorVehicle.model) === normalizeVehicleModel(targetVehicle.model);
+    const modelMatches = modelsAreCompatible(partDonorVehicle.model, targetVehicle.model);
 
     if (makeMatches && modelMatches) {
       // Check year compatibility if provided

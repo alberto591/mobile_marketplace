@@ -1,0 +1,602 @@
+import { useLocalSearchParams } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { formatMoney } from '@mobile-marketplace/core';
+import { CompatibilityBadge } from '../../components/CompatibilityBadge';
+import { EmptyState } from '../../components/EmptyState';
+import { InquiryModal } from '../../components/InquiryModal';
+import type { PartDetailResult } from '../../services/catalog-service.interface';
+import { catalogService } from '../../services/mock-catalog.service';
+import { borderRadius, colors, spacing, typography } from '../../theme/index';
+
+export default function PartDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<PartDetailResult | null>(null);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [inquiryModalVisible, setInquiryModalVisible] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPart() {
+      if (!id) return;
+      setLoading(true);
+      try {
+        const res = await catalogService.getPartById(id);
+        if (isMounted) {
+          setData(res);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadPart();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={styles.loadingText}>Cargando ficha del recambio...</Text>
+      </View>
+    );
+  }
+
+  if (!data) {
+    return (
+      <View style={styles.container}>
+        <EmptyState
+          title="Pieza no encontrada"
+          message="No se ha podido localizar este recambio en el inventario actual de los desguaces colaboradores."
+        />
+      </View>
+    );
+  }
+
+  const { part, vendor, compatibility } = data;
+  const images = part.images;
+  const currentImage = images[selectedImageIndex] ?? images[0];
+
+  const conditionLabels: Record<string, string> = {
+    EXCELLENT: 'Excelente estado (sin desgastes notorios)',
+    GOOD: 'Buen estado (desgaste normal de uso)',
+    FAIR: 'Estado regular (marcas visibles de uso)',
+    FOR_REPAIR: 'Para reparar o despiece',
+    UNKNOWN: 'Estado no catalogado por el desguace',
+  };
+
+  const isAvailable = part.availability.status === 'AVAILABLE';
+
+  return (
+    <View style={styles.screen}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Photo Gallery */}
+        <View style={styles.galleryContainer}>
+          {currentImage ? (
+            <Image
+              source={{ uri: currentImage.url }}
+              style={styles.mainImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.mainImagePlaceholder}>
+              <Text style={styles.noPhotoText}>[Sin Fotografías Disponibles]</Text>
+              <Text style={styles.noPhotoSub}>
+                El desguace no ha subido imágenes para esta referencia
+              </Text>
+            </View>
+          )}
+
+          {/* Thumbnails */}
+          {images.length > 1 && (
+            <ScrollView horizontal style={styles.thumbScroll} showsHorizontalScrollIndicator={false}>
+              {images.map((img, idx) => (
+                <Pressable
+                  key={img.id}
+                  style={[
+                    styles.thumbWrapper,
+                    selectedImageIndex === idx && styles.thumbWrapperActive,
+                  ]}
+                  onPress={() => setSelectedImageIndex(idx)}
+                >
+                  <Image source={{ uri: img.url }} style={styles.thumbImage} resizeMode="cover" />
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* Content Sheet */}
+        <View style={styles.sheet}>
+          {/* Header & Price */}
+          <Text style={styles.title}>{part.title}</Text>
+          <View style={styles.priceRow}>
+            <View>
+              <Text style={styles.price}>{formatMoney(part.price)}</Text>
+              <Text style={styles.vatNote}>IVA incluido · Transporte según destino</Text>
+            </View>
+
+            <View
+              style={[
+                styles.stockPill,
+                isAvailable ? styles.stockPillAvailable : styles.stockPillUnavailable,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.stockPillText,
+                  isAvailable ? styles.stockTextAvailable : styles.stockTextUnavailable,
+                ]}
+              >
+                {isAvailable ? 'Disponible en CAT' : 'Agotado'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Compatibility Signal Section */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeading}>Verificación de compatibilidad</Text>
+            <CompatibilityBadge signal={compatibility} showDetails />
+          </View>
+
+          {/* OEM References Section */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeading}>Referencias de la pieza</Text>
+            {part.oemReferences.length > 0 ? (
+              part.oemReferences.map((ref, idx) => (
+                <View key={idx} style={styles.oemRow}>
+                  <Text style={styles.oemBadge}>{ref.isPrimary ? 'Principal' : 'Equivalente'}</Text>
+                  <Text style={styles.oemCode}>{ref.raw}</Text>
+                  <Text style={styles.oemNorm}>(Norm: {ref.normalized})</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyFieldText}>
+                No se especificó referencia OEM en el inventario del vendedor.
+              </Text>
+            )}
+          </View>
+
+          {/* Donor Vehicle Specifications */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeading}>Vehículo donante de origen</Text>
+            {part.donorVehicle ? (
+              <View style={styles.specTable}>
+                <View style={styles.specRow}>
+                  <Text style={styles.specKey}>Marca y modelo</Text>
+                  <Text style={styles.specVal}>
+                    {part.donorVehicle.make} {part.donorVehicle.model}
+                  </Text>
+                </View>
+
+                {part.donorVehicle.generation && (
+                  <View style={styles.specRow}>
+                    <Text style={styles.specKey}>Generación / Versión</Text>
+                    <Text style={styles.specVal}>{part.donorVehicle.generation}</Text>
+                  </View>
+                )}
+
+                {part.donorVehicle.yearFrom && (
+                  <View style={styles.specRow}>
+                    <Text style={styles.specKey}>Año de fabricación</Text>
+                    <Text style={styles.specVal}>{part.donorVehicle.yearFrom}</Text>
+                  </View>
+                )}
+
+                {part.donorVehicle.engineCode && (
+                  <View style={styles.specRow}>
+                    <Text style={styles.specKey}>Código de motor</Text>
+                    <Text style={styles.specVal}>{part.donorVehicle.engineCode}</Text>
+                  </View>
+                )}
+
+                {part.donorVehicle.fuel && (
+                  <View style={styles.specRow}>
+                    <Text style={styles.specKey}>Combustible</Text>
+                    <Text style={styles.specVal}>{part.donorVehicle.fuel}</Text>
+                  </View>
+                )}
+
+                {part.donorVehicle.donorVinMasked && (
+                  <View style={styles.specRow}>
+                    <Text style={styles.specKey}>Bastidor anonimizado</Text>
+                    <Text style={styles.specVal}>{part.donorVehicle.donorVinMasked}</Text>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <Text style={styles.emptyFieldText}>
+                Datos específicos del vehículo donante no facilitados por el desguace.
+              </Text>
+            )}
+          </View>
+
+          {/* Condition and Testing */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeading}>Estado y comprobación funcional</Text>
+            <View style={styles.specRow}>
+              <Text style={styles.specKey}>Estado visual</Text>
+              <Text style={styles.specVal}>
+                {conditionLabels[part.condition] ?? part.condition}
+              </Text>
+            </View>
+            <View style={styles.specRow}>
+              <Text style={styles.specKey}>Test funcional</Text>
+              <Text style={styles.specVal}>
+                {part.testedStatus === 'TESTED_WORKING'
+                  ? 'Comprobado en banco de pruebas'
+                  : 'Sin prueba funcional'}
+              </Text>
+            </View>
+            {part.description && (
+              <View style={styles.descriptionBox}>
+                <Text style={styles.specKey}>Observaciones del desguace:</Text>
+                <Text style={styles.descriptionText}>{part.description}</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Seller / CAT Details */}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionHeading}>Desguace vendedor (Centro CAT)</Text>
+            <Text style={styles.vendorLegalName}>{vendor.legalName}</Text>
+            <Text style={styles.vendorTradeName}>Comercial: {vendor.tradeName}</Text>
+
+            <View style={styles.vendorMetaRow}>
+              <Text style={styles.vendorMetaLabel}>Autorización ambiental:</Text>
+              <Text style={styles.vendorMetaValue}>{vendor.catAuthorizationCode}</Text>
+            </View>
+
+            <View style={styles.vendorMetaRow}>
+              <Text style={styles.vendorMetaLabel}>Ubicación:</Text>
+              <Text style={styles.vendorMetaValue}>
+                {vendor.location.city} ({vendor.location.province}), {vendor.location.postalCode}
+              </Text>
+            </View>
+
+            <View style={styles.vendorMetaRow}>
+              <Text style={styles.vendorMetaLabel}>Garantía legal:</Text>
+              <Text style={styles.vendorMetaValue}>
+                {vendor.policies.warrantyMonths} meses (RD 265/2021)
+              </Text>
+            </View>
+
+            <View style={styles.vendorMetaRow}>
+              <Text style={styles.vendorMetaLabel}>Plazo de desistimiento:</Text>
+              <Text style={styles.vendorMetaValue}>
+                {vendor.policies.returnDays} días naturales para devoluciones
+              </Text>
+            </View>
+
+            <Text style={styles.syncNotice}>
+              Última sincronización de catálogo:{' '}
+              {new Date(part.lastSyncedAt).toLocaleDateString('es-ES', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* Floating Action Bar */}
+      <View style={styles.floatingBar}>
+        <View style={styles.floatingPriceBox}>
+          <Text style={styles.floatingPrice}>{formatMoney(part.price)}</Text>
+          <Text style={styles.floatingVat}>IVA incluido</Text>
+        </View>
+
+        <Pressable
+          style={[styles.inquiryBtn, !isAvailable && styles.inquiryBtnDisabled]}
+          onPress={() => setInquiryModalVisible(true)}
+        >
+          <Text style={styles.inquiryBtnText}>
+            {isAvailable ? 'Consultar disponibilidad' : 'Consultar recambio'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* Inquiry Modal */}
+      <InquiryModal
+        visible={inquiryModalVisible}
+        part={part}
+        vendor={vendor}
+        onClose={() => setInquiryModalVisible(false)}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollContent: {
+    paddingBottom: 110, // Avoid bottom floating bar overlap
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  container: {
+    padding: spacing.md,
+  },
+  galleryContainer: {
+    width: '100%',
+    backgroundColor: colors.cardSecondary,
+  },
+  mainImage: {
+    width: '100%',
+    height: 260,
+  },
+  mainImagePlaceholder: {
+    width: '100%',
+    height: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  noPhotoText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textMuted,
+    marginBottom: 4,
+  },
+  noPhotoSub: {
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  thumbScroll: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.card,
+  },
+  thumbWrapper: {
+    width: 60,
+    height: 60,
+    borderRadius: borderRadius.sm,
+    marginRight: spacing.sm,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    overflow: 'hidden',
+  },
+  thumbWrapperActive: {
+    borderColor: colors.accent,
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  sheet: {
+    padding: spacing.lg,
+  },
+  title: {
+    ...typography.titleLarge,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  price: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  vatNote: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  stockPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+  },
+  stockPillAvailable: {
+    backgroundColor: colors.verifiedBg,
+  },
+  stockPillUnavailable: {
+    backgroundColor: colors.dangerBg,
+  },
+  stockPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  stockTextAvailable: {
+    color: colors.verified,
+  },
+  stockTextUnavailable: {
+    color: colors.danger,
+  },
+  sectionCard: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sectionHeading: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+  },
+  oemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  oemBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    backgroundColor: colors.cardSecondary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+    marginRight: spacing.sm,
+  },
+  oemCode: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.accent,
+    marginRight: 6,
+  },
+  oemNorm: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  emptyFieldText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: colors.textMuted,
+  },
+  specTable: {
+    gap: 4,
+  },
+  specRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardSecondary,
+  },
+  specKey: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  specVal: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  descriptionBox: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  descriptionText: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  vendorLegalName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  vendorTradeName: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  vendorMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  vendorMetaLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  vendorMetaValue: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  syncNotice: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  floatingBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.card,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg + 4,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  floatingPriceBox: {
+    marginRight: spacing.md,
+  },
+  floatingPrice: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  floatingVat: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  inquiryBtn: {
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: borderRadius.md,
+    flex: 1,
+    alignItems: 'center',
+  },
+  inquiryBtnDisabled: {
+    backgroundColor: colors.textMuted,
+  },
+  inquiryBtnText: {
+    color: colors.textInverse,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+});
