@@ -18,7 +18,8 @@ CREATE POLICY "Public read for available parts"
     );
 
 -- 2. Recreate public_catalog_parts view with security_invoker and security_barrier
-CREATE OR REPLACE VIEW public_catalog_parts 
+DROP VIEW IF EXISTS public_catalog_parts CASCADE;
+CREATE VIEW public_catalog_parts 
 WITH (security_invoker = true, security_barrier = true) AS
 SELECT 
     p.id,
