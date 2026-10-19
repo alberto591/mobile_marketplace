@@ -115,4 +115,35 @@ describe('Mobile App - Catalog Service & Multi-Provider Ingestion', () => {
     expect(result.totalCount).toBe(0);
     expect(result.items.length).toBe(0);
   });
+
+  it('retrieves Eurodesguace Málaga as an authorized CAT vendor and allows filtering by it', async () => {
+    const vendors = await service.getVendors();
+    const euroVendor = vendors.find((v) => v.id === 'vendor_eurodesguace');
+    expect(euroVendor).toBeDefined();
+    expect(euroVendor?.tradeName).toBe('Eurodesguace Málaga');
+    expect(euroVendor?.catAuthorizationCode).toBe('CAT/AND/MA/0412');
+    expect(euroVendor?.catVerified).toBe(true);
+
+    const euroResults = await service.search({ vendorId: 'vendor_eurodesguace' });
+    expect(euroResults.items.length).toBeGreaterThanOrEqual(5);
+    for (const item of euroResults.items) {
+      expect(item.part.vendorId).toBe('vendor_eurodesguace');
+      expect(item.vendor.tradeName).toBe('Eurodesguace Málaga');
+      expect(item.part.price.amountInCents).toBeGreaterThan(0);
+      expect(item.part.price.currency).toBe('EUR');
+    }
+  });
+
+  it('preserves visual references and donor vehicle from real Eurodesguace parts', async () => {
+    const result = await service.search({ query: 'MANDO CALEFACCION' });
+    const nemoPart = result.items.find(
+      (i) => i.part.vendorId === 'vendor_eurodesguace' && i.part.source.externalPartId === '91010'
+    );
+    expect(nemoPart).toBeDefined();
+    expect(nemoPart?.part.donorVehicle?.make).toBe('CITROEN');
+    expect(nemoPart?.part.donorVehicle?.model).toBe('NEMO');
+    expect(nemoPart?.part.price.amountInCents).toBe(4295); // 42,95 EUR
+    expect(nemoPart?.part.oemReferences[0].normalized).toBe('5073401000013');
+    expect(nemoPart?.part.oemReferences[0].brandName).toBe('REFERENCIA_VISUAL');
+  });
 });

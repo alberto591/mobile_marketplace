@@ -130,7 +130,11 @@ export default function PartDetailScreen() {
           <View style={styles.priceRow}>
             <View>
               <Text style={styles.price}>{formatMoney(part.price)}</Text>
-              <Text style={styles.vatNote}>IVA incluido · Transporte según destino</Text>
+              <Text style={styles.vatNote}>
+                {vendor.policies.shippingPolicySummary?.includes('IVA incluido')
+                  ? 'IVA incluido · Transporte según destino'
+                  : 'Precio base de inventario · Consultar condiciones en CAT'}
+              </Text>
             </View>
 
             <View
@@ -145,7 +149,7 @@ export default function PartDetailScreen() {
                   isAvailable ? styles.stockTextAvailable : styles.stockTextUnavailable,
                 ]}
               >
-                {isAvailable ? 'Disponible en CAT' : 'Agotado'}
+                {isAvailable ? 'En stock (confirmar con CAT)' : 'Agotado'}
               </Text>
             </View>
           </View>
@@ -162,9 +166,19 @@ export default function PartDetailScreen() {
             {part.oemReferences.length > 0 ? (
               part.oemReferences.map((ref, idx) => (
                 <View key={idx} style={styles.oemRow}>
-                  <Text style={styles.oemBadge}>{ref.isPrimary ? 'Principal' : 'Equivalente'}</Text>
+                  <Text style={styles.oemBadge}>
+                    {ref.brandName === 'REFERENCIA_VISUAL'
+                      ? 'Ref. Visual Proveedor'
+                      : ref.isPrimary
+                      ? 'Principal'
+                      : 'Equivalente'}
+                  </Text>
                   <Text style={styles.oemCode}>{ref.raw}</Text>
-                  <Text style={styles.oemNorm}>(Norm: {ref.normalized})</Text>
+                  <Text style={styles.oemNorm}>
+                    {ref.brandName === 'REFERENCIA_VISUAL'
+                      ? '(No garantizada OEM oficial)'
+                      : `(Norm: ${ref.normalized})`}
+                  </Text>
                 </View>
               ))
             ) : (

@@ -78,6 +78,37 @@ export function subtractMoney(a: Money, b: Money): Money {
 }
 
 /**
+ * Parses a decimal string formatted with comma (European format, e.g. "42,95", "100", "0,50")
+ * directly into integer cents without using floating-point math.
+ */
+export function parseEuroCommaToCents(priceStr: string): number {
+  if (typeof priceStr !== 'string') {
+    throw new InvalidMoneyError(`Expected string for comma decimal price, received: ${typeof priceStr}`);
+  }
+  const trimmed = priceStr.trim();
+  if (!/^\d+(?:[.,]\d{1,2})?$/.test(trimmed)) {
+    throw new InvalidMoneyError(`Invalid price format: "${priceStr}". Expected format like "42,95" or "100"`);
+  }
+  const normalized = trimmed.replace(',', '.');
+  const parts = normalized.split('.');
+  const integerPart = parseInt(parts[0] ?? '0', 10);
+  const decimalPart = parts[1] ? parts[1].padEnd(2, '0').slice(0, 2) : '00';
+  const cents = integerPart * 100 + parseInt(decimalPart, 10);
+  if (!Number.isSafeInteger(cents) || cents < 0) {
+    throw new InvalidMoneyError(`Parsed cents outside safe integer range: ${cents}`);
+  }
+  return cents;
+}
+
+/**
+ * Creates a Money value object from a comma-formatted euro string (e.g. "42,95").
+ */
+export function createMoneyFromCommaString(priceStr: string, currency: CurrencyCode = 'EUR'): Money {
+  const cents = parseEuroCommaToCents(priceStr);
+  return createMoney(cents, currency);
+}
+
+/**
  * Compares two Money instances.
  * Returns negative if a < b, positive if a > b, zero if equal.
  */

@@ -7,9 +7,11 @@ import {
   areOEMReferencesEqual,
   compareMoney,
   evaluateCompatibility,
+  EURODESGUACE_REAL_SAMPLE_PARTS,
   isOk,
   MockScrapYardAAdapter,
   MockScrapYardBAdapter,
+  normalizeEurodesguacePart,
   normalizeOEMReference,
 } from '@mobile-marketplace/core';
 import type {
@@ -94,6 +96,39 @@ export class MockCatalogService implements ICatalogService {
           updatedAt: new Date('2026-10-01'),
         }),
       ],
+      [
+        'vendor_eurodesguace',
+        Object.freeze({
+          id: 'vendor_eurodesguace',
+          legalName: 'Eurodesguace Málaga S.L.',
+          tradeName: 'Eurodesguace Málaga',
+          catAuthorizationCode: 'CAT/AND/MA/0412',
+          catVerified: true,
+          location: {
+            city: 'Málaga',
+            province: 'Málaga',
+            postalCode: '29004',
+            country: 'ES' as const,
+            addressLine: 'Polígono Industrial Guadalhorce, Calle Esteban Salazar Chapela',
+          },
+          contact: {
+            publicPhone: '+34 952 000 000',
+            publicEmail: 'info@eurodesguacemalaga.com',
+            websiteUrl: 'https://eurodesguacemalaga.com',
+          },
+          policies: {
+            warrantyMonths: 12,
+            returnDays: 14,
+            shippingEstimateDays: 2,
+            shippingPolicySummary: 'Envíos en 24-48h a península. Garantía legal de 12 meses conforme al RD 265/2021. Catálogo actualizado diariamente.',
+          },
+          status: 'ACTIVE',
+          averageRating: 4.7,
+          totalReviews: 185,
+          createdAt: new Date('2025-06-01'),
+          updatedAt: new Date('2026-10-19'),
+        }),
+      ],
     ]);
   }
 
@@ -172,6 +207,26 @@ export class MockCatalogService implements ICatalogService {
       errors.push({
         providerId: this.adapterB.providerId,
         message: e instanceof Error ? e.message : 'Error al consultar Desguace Beta',
+      });
+    }
+
+    // 3. Ingest Real Provider (Eurodesguace Málaga) from verified real catalog fixtures
+    try {
+      for (const raw of EURODESGUACE_REAL_SAMPLE_PARTS) {
+        const normResult = normalizeEurodesguacePart(raw, 'vendor_eurodesguace');
+        if (normResult.success) {
+          parts.push(normResult.data);
+        } else {
+          errors.push({
+            providerId: 'eurodesguace_malaga',
+            message: normResult.error.message,
+          });
+        }
+      }
+    } catch (e) {
+      errors.push({
+        providerId: 'eurodesguace_malaga',
+        message: e instanceof Error ? e.message : 'Error al procesar recambios de Eurodesguace Málaga',
       });
     }
 
