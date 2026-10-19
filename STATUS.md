@@ -1,7 +1,7 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
 - **Fecha de actualización:** 2026-10-19
-- **Fase activa:** Fase 1 — Primera Aplicación Móvil Funcional (Paso 3 completado)
+- **Fase activa:** Fase 2 — Integración de Desguaces Reales (Paso 4: Auditoría de API y Puerta de Decisión)
 - **Estado de pruebas:** 44 pruebas automatizadas pasando al 100% (34 en `@mobile-marketplace/core`, 10 en `@mobile-marketplace/mobile`)
 - **Compilación móvil:** Bundle iOS para Hermes compilado y verificado con éxito (1.184 módulos empaquetados sin errores)
 - **Vulnerabilidades en dependencias:** 0 vulnerabilidades en `@mobile-marketplace/core`
@@ -10,12 +10,13 @@
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se ha completado el desarrollo de la primera versión navegable de la aplicación móvil en `apps/mobile` utilizando Expo, React Native, TypeScript estricto y Expo Router, consumiendo directamente la capa de dominio canónico `@mobile-marketplace/core`.
+Se ha completado la auditoría técnica de la Fase A para la integración del primer desguace real en el proyecto. 
 
-La aplicación implementa un flujo completo y verificado de:
-1. **Búsqueda multimodal:** por nombre/categoría de recambio, por referencia OEM oficial y por marca/modelo/año del vehículo.
-2. **Listado de resultados multi-desguace:** alimentado por los adaptadores de Desguace Alpha (Madrid) y Desguace Beta (Valencia), con filtros interactivos de vendedor, precio y disponibilidad, ordenación determinista y distinción honesta de ofertas distintas que comparten la misma referencia OEM.
-3. **Ficha técnica del recambio:** con carrusel de fotografías reales, precio con desglose de IVA, especificaciones técnicas del vehículo donante, identificación oficial del CAT vendedor con autorización ambiental y política de garantías (1 año legal), y acción honesta para consultar disponibilidad (lead sin fingir checkout inmediato).
+Conclusiones de la auditoría:
+1. No se encontraron especificaciones OpenAPI/Swagger, colecciones Postman, endpoints ni credenciales reales en el repositorio ni en la documentación para el primer proveedor.
+2. Conforme al principio de ingeniería de no inventar endpoints supuestos ni introducir datos simulados que oculten la realidad en producción, la implementación física del adaptador queda pausada en la **Puerta de Decisión (Decision Gate)**.
+3. Se formalizó la arquitectura de ingesta, seguridad y ciclo de vida en [ADR 003](docs/ADRs/003-real-scrapyard-api-ingestion-and-catalog-lifecycle.md), estableciendo el aislamiento estricto de secretos en el backend, la idempotencia `(vendor_id, external_part_id)` y el protocolo de no borrado destructivo ante fallos de sincronización.
+4. El sistema mantiene el 100% de operatividad en sus 44 pruebas unitarias y de integración, así como la ejecución fluida de la app móvil con los adaptadores desacoplados.
 
 ---
 
@@ -85,10 +86,22 @@ cd apps/mobile && npx expo start
 
 ---
 
-## 5. Bloqueos y Decisiones Técnicas Pendientes
+## 5. Decision Gate y Requisitos Pendientes (Paso 4)
 
-Para la transición a datos de producción (Fase 2 y 3):
+Para desbloquear la Fase B (implementación del adaptador real en Supabase Edge Functions):
 
-1. **Credenciales y documentación Swagger/OpenAPI:** de los dos desguaces iniciales para sustituir los mocks por conectores HTTP reales en Supabase Edge Functions.
-2. **Capacidad transaccional:** determinar si alguno de los dos centros soporta reserva atómica vía API o si el modelo de leads/solicitudes estructuradas operará en el lanzamiento comercial.
-3. **Hotlinking de imágenes:** confirmar si las URLs de fotografías de las APIs son permanentes con soporte CORS o si se sincronizarán en Supabase Storage.
+1. **Documentación Oficial de la API del Proveedor 1:**
+   - Swagger / OpenAPI (JSON/YAML) o manual técnico en PDF con endpoints exactos.
+   - Formato de autenticación (API Key por cabecera, Bearer Token, OAuth2 o Basic Auth).
+   - Estructura de respuestas JSON/XML y códigos de error (429, 401, 503).
+2. **Modelo de Paginación y Consulta:**
+   - Mecanismo de paginación (offset/limit, página/tamaño o cursor opaco).
+   - Disponibilidad de parámetros incrementales (`updated_after`, `since_timestamp`).
+3. **Mapeo de Campos de Inventario y Vehículos:**
+   - Referencia OEM principal y equivalencias.
+   - Datos del donante: marca, modelo, año, código de motor, combustible, cilindrada.
+   - Moneda, desglose de IVA y formato del precio.
+4. **Política de Fotografías:**
+   - Estabilidad de las URLs de fotos y requisitos de autorización o CORS.
+5. **Comprobación de Stock en Tiempo Real:**
+   - Si existe endpoint de verificación previa de stock antes de confirmar solicitudes o si el catálogo es asíncrono.
