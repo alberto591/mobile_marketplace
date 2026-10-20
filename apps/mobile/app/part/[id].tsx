@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -13,6 +14,7 @@ import { formatMoney } from '@mobile-marketplace/core';
 import { CompatibilityBadge } from '../../components/CompatibilityBadge';
 import { EmptyState } from '../../components/EmptyState';
 import { InquiryModal } from '../../components/InquiryModal';
+import { useCart } from '../../services/cart-context';
 import type { PartDetailResult } from '../../services/catalog-service.interface';
 import { catalogService } from '../../services/catalog-service.factory';
 import { borderRadius, colors, spacing, typography } from '../../theme/index';
@@ -105,7 +107,31 @@ export default function PartDetailScreen() {
     UNKNOWN: 'Estado no catalogado por el desguace',
   };
 
-  const isAvailable = part.availability.status === 'AVAILABLE';
+  const { isInCart, addItem } = useCart();
+  const inCart = isInCart(part.id);
+  const status = part.availability.status;
+  const isAvailable = status === 'AVAILABLE' && part.availability.stockQuantity > 0;
+  const isPending =
+    status === 'PENDING_CONFIRMATION' || (status === 'AVAILABLE' && part.availability.stockQuantity <= 0);
+
+  const handleActionPress = () => {
+    if (isAvailable) {
+      if (inCart) {
+        router.push('/cart');
+      } else {
+        const res = addItem(part, vendor);
+        if (!res.success && res.reason) {
+          Alert.alert('Aviso', res.reason);
+        }
+      }
+      return;
+    }
+
+    if (isPending) {
+      setInquiryModalVisible(true);
+      return;
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -390,14 +416,45 @@ export default function PartDetailScreen() {
           <Text style={styles.floatingVat}>IVA incluido</Text>
         </View>
 
-        <Pressable
-          style={[styles.inquiryBtn, !isAvailable && styles.inquiryBtnDisabled]}
-          onPress={() => setInquiryModalVisible(true)}
-        >
-          <Text style={styles.inquiryBtnText}>
-            {isAvailable ? 'Consultar disponibilidad' : 'Consultar recambio'}
+        <View style={styles.floatingActionContainer}>
+          <Pressable
+            style={[
+              styles.inquiryBtn,
+              inCart && styles.inCartBtn,
+              !isAvailable && !isPending && styles.inquiryBtnDisabled,
+            ]}
+            onPress={handleActionPress}
+            disabled={!isAvailable && !isPending}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isAvailable
+                ? inCart
+                  ? 'Pieza ya en el carrito. Pulsa para ver tu selección'
+                  : 'Añadir esta unidad al carrito'
+                : isPending
+                ? 'Consultar disponibilidad al desguace'
+                : 'Pieza no disponible'
+            }
+          >
+            <Text
+              style={[
+                styles.inquiryBtnText,
+                inCart && styles.inCartBtnText,
+              ]}
+            >
+              {isAvailable
+                ? inCart
+                  ? 'En el carrito (Ver selección)'
+                  : 'Añadir al carrito'
+                : isPending
+                ? 'Consultar disponibilidad'
+                : 'Pieza no disponible'}
+            </Text>
+          </Pressable>
+          <Text style={styles.floatingNoticeText}>
+            Stock físico no reservado hasta confirmación del CAT
           </Text>
-        </Pressable>
+        </View>
       </View>
 
       {/* Inquiry Modal */}
@@ -710,13 +767,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMuted,
   },
+  floatingActionContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
   inquiryBtn: {
     backgroundColor: colors.accent,
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     borderRadius: borderRadius.md,
-    flex: 1,
+    width: '100%',
     alignItems: 'center',
+  },
+  inCartBtn: {
+    backgroundColor: colors.cardSecondary,
+    borderWidth: 2,
+    borderColor: colors.accent,
+  },
+  inCartBtnText: {
+    color: colors.accent,
+    fontWeight: '700',
+    fontSize: 13,
   },
   inquiryBtnDisabled: {
     backgroundColor: colors.textMuted,
@@ -725,5 +796,11 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
     fontWeight: '700',
     fontSize: 14,
+  },
+  floatingNoticeText: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginTop: 3,
+    textAlign: 'center',
   },
 });
