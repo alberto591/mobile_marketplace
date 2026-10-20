@@ -67,12 +67,12 @@ export function InquiryModal({ visible, part, vendor, onClose }: Props) {
 
             {submitted ? (
               <View style={styles.confirmationBox}>
-                <Text style={styles.confirmTitle}>¡Solicitud enviada al desguace!</Text>
+                <Text style={styles.confirmTitle}>Solicitud de consulta registrada</Text>
                 <Text style={styles.confirmText}>
-                  El equipo de {vendor.tradeName} revisará el stock físico de la pieza #{part.source.externalPartId} y te contactará en {contactInfo}.
+                  [Modo prueba / Prototipo]: Los datos para consultar la pieza #{part.source.externalPartId} ({vendor.tradeName}) se han registrado localmente en la interfaz.
                 </Text>
                 <Text style={styles.confirmNote}>
-                  Nota: Al tratarse de una pieza usada única, el CAT verificará el estado antes de confirmar cualquier reserva.
+                  Aviso: En esta fase de staging no se realiza envío telemático externo al CAT ni se bloquea stock físico.
                 </Text>
 
                 <Pressable style={styles.confirmBtn} onPress={handleResetAndClose}>

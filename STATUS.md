@@ -1,7 +1,7 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
 - **Fecha de actualización:** 2026-10-20
-- **Fase completada:** Fase 2 — Paso 8: Ingesta Controlada de 50 Piezas Reales en Supabase Staging (Completada al 100%)
+- **Fase completada:** Fase 2 — Paso 9: Congelación de Catálogo en 114 Piezas Reales y Preparación para Validación Manual de Usuario
 - **Estado de pruebas:** 85 pruebas automatizadas pasando al 100% (57 en `@mobile-marketplace/core`, 28 en `@mobile-marketplace/mobile`)
 - **Tipado estático:** TypeScript estricto (`tsc --noEmit`) superado con 0 errores en core y mobile
 - **Compilación móvil:** Bundle iOS para Hermes verificado, configurable en modo `backend` (PostgREST directo a staging) y modo `mock`
@@ -12,46 +12,30 @@
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se ha completado el **Paso 8 (Ingesta Controlada de 50 Piezas Reales en Supabase Staging, Auditoría de Persistencia e Idempotencia)**:
+Se ha auditado y estabilizado el catálogo en **Supabase Staging (`lmsjgxhzfksyrlxyqndd`)**, congelando formalmente el inventario en 114 piezas para permitir la validación manual del usuario:
 
-1. **Ingesta Controlada de 50 Piezas Reales:**
-   - Ejecutado el proceso de ingesta con límite estricto de servidor de 50 piezas (`MAX_PILOT_LIMIT = 50`) desde la API de producción de Eurodesguace Málaga hacia Supabase Staging (`lmsjgxhzfksyrlxyqndd`).
-   - Primera pasada (`batch_1792474744_50`, 47.3s): 50 piezas procesadas, **40 nuevas insertadas**, **10 preexistentes actualizadas** (las procedentes del piloto anterior), 0 fallidas.
-   - Total de piezas en `parts`: **50 piezas reales**.
+1. **Congelación Estricta del Inventario:**
+   - La ingesta de datos queda **temporalmente congelada** en las **114 piezas únicas** existentes.
+   - Prohibidas nuevas inserciones, actualizaciones masivas, migraciones o alteraciones de cursor hasta recibir el feedback formal de las pruebas manuales.
+   - El punto de control en `source_integrations` permanece intacto en `last_cursor: '111'`, `sync_status: 'IDLE'`.
 
-2. **Verificación de Persistencia y Relaciones:**
-   - **Unicidad e Identificadores:** 50/50 identificadores externos únicos (`external_part_id`), sin colisiones y manteniendo el `refid` de origen.
-   - **Vehículos Donantes:** 49 registros en `part_vehicles` con código de donante (`donor_vehicle_code`) correctamente desacoplado del vehículo del comprador.
-   - **Referencias Visuales:** 42 referencias en `part_oem_references` tipadas al 100% como `REFERENCIA_VISUAL` (ninguna etiquetada falsamente como OEM oficial).
-   - **Fotografías Reales:** 170 imágenes persistidas en `part_images` con URLs completas de CDN de Eurodesguace Málaga, ordenación `sort_order` y flag `is_primary` intactos.
-   - **Integridad Referencial:** 0 relaciones huérfanas en vehículos, referencias u fotografías.
+2. **Auditoría de Datos en Supabase Staging:**
+   - **Piezas únicas (`parts`):** 114 registros persistidos vinculados a Eurodesguace Málaga S.L. (`00000000-0000-4000-a000-000000000101`).
+   - **Unicidad e Identificadores:** 114/114 identificadores externos (`external_part_id`) únicos, sin duplicados ni colisiones.
+   - **Fotografías Reales (`part_images`):** 378 imágenes registradas y asociadas a las piezas persistidas (media de 3,32 fotos por pieza con URLs de CDN en alta resolución).
+   - **Vehículos Donantes (`part_vehicles`):** 112 vínculos con marca, modelo y código de vehículo donante (`donor_vehicle_code`).
+   - **Referencias Visuales (`part_oem_references`):** 102 referencias tipadas al 100% como `REFERENCIA_VISUAL` (no garantizada).
+   - **Integridad Referencial:** 0 registros huérfanos.
 
-3. **Demostración Empírica de Idempotencia:**
-   - Se re-ejecutó exactamente el mismo lote de 50 piezas (`batch_1792474823_50`, 55.8s).
-   - Resultados de la segunda pasada: **50 procesadas, 0 creadas, 50 actualizadas, 0 fallidas**.
-   - El recuento total de piezas en base de datos permaneció exactamente en 50 y el de imágenes en 170 (cero duplicados).
+3. **Auditoría de Configuración Móvil (Modo Backend):**
+   - La variable `EXPO_PUBLIC_CATALOG_DATA_SOURCE=backend` activa deterministamente `BackendCatalogService`.
+   - La aplicación consume la vista PostgREST `public_catalog_parts` mediante la clave pública anónima (`EXPO_PUBLIC_SUPABASE_ANON_KEY`).
+   - El bundle móvil está 100% libre de claves privadas (`EURODESGUACE_API_KEY`, `SYNC_ADMIN_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`).
+   - Principio Fail-Fast: Si el backend falla, la app muestra una pantalla de error explícita con reintento. Jamás inyecta fixtures ni inventario simulado.
+   - Transparencia en consultas: El modal `InquiryModal` clarifica de forma honesta que en staging la consulta se registra localmente como prototipo, sin fingir transmisiones externas al CAT.
 
-4. **Punto de Control y Trazabilidad:**
-   - La tabla `source_integrations` actualizó su punto de control con el cursor reportado por el proveedor: `last_cursor: '57'`, `sync_status: 'IDLE'`, `last_success_at: '2026-10-20T05:39:52Z'`.
-   - La tabla `sync_logs` contiene los dos registros de auditoría completos con métricas detalladas de ejecución.
-
-5. **Análisis Técnico de Índices:**
-   - Se analizó la propuesta `CREATE INDEX idx_parts_active_catalog ON parts (vendor_id, category_id, price_cents) WHERE deleted_at IS NULL AND availability_status = 'AVAILABLE';`.
-   - Se concluyó técnicamente que el predicado propuesto no coincide con la cláusula WHERE de la vista `public_catalog_parts`, la cual incluye `availability_status IN ('AVAILABLE', 'PENDING_CONFIRMATION')`. Por tanto, el optimizador de PostgreSQL no podría utilizar dicho índice parcial para consultas sobre la vista.
-   - Los índices existentes (`idx_parts_vendor_avail`, `idx_parts_category_avail`, `idx_parts_title_trgm`) son plenamente óptimos para 50 registros. Se pospone la creación de un nuevo índice hasta la fase de escala a > 5.000 piezas con un predicado corregido.
-
-6. **Integración con la Aplicación Móvil:**
-   - Verificada la recuperación mediante `BackendCatalogService`:
-     - Búsqueda de «CALEFACCION»: recupera honestamente las 3 piezas reales existentes en el catálogo de 50 (Mando Citroën Nemo, Resistencia calefacción, Centralita calefacción).
-     - Búsqueda de nueva pieza «ELEVALUNAS» (ref `91032`): recupera ficha con 4 fotos reales, 27,95 EUR y donante.
-     - Ordenación por precio ascendente: 27,95 EUR < 32,95 EUR < 42,95 EUR.
-     - Aislamiento del segundo proveedor simulado: `MockCatalogService` opera de forma estanca con Desguace Alpha Madrid.
-
-7. **Seguridad y Permisos:**
-   - Rol `anon` accede únicamente a `public_catalog_parts` (HTTP 200 con 50 piezas visibles).
-   - `anon` denegado en `source_integrations` (HTTP 401), `sync_logs` (HTTP 401) e inserciones en `parts` (HTTP 401).
-   - `eurodesguace-sync?action=sync-batch` denegado con HTTP 401 ante llamadas no autorizadas.
-   - Límite de servidor de 50 piezas blindado y verificado en tests unitarios.
+4. **Guía de Pruebas Manuales Preparada:**
+   - Creado el documento `docs/manual-testing-guide.md` con **21 casos de prueba estructurados** (Búsqueda, Resultados, Ficha Técnica, Errores y Usabilidad) con pasos, resultados esperados y casillas de verificación PASS/FAIL/BLOCKED.
 
 ---
 
@@ -72,29 +56,32 @@ Se ejecutan **85 pruebas automatizadas** pasando al 100% con Vitest:
 | `packages/core/test/sync-edge-function-security.test.ts` | 5 | Superado | Autorización de sync-batch (401), token inválido, clamp a 50 piezas en servidor |
 | `apps/mobile/test/catalog-service.test.ts` | 12 | Superado | Agregación multi-proveedor, filtrado por Eurodesguace Málaga, referencias visuales |
 | `apps/mobile/test/backend-catalog-service.test.ts` | 8 | Superado | Consulta PostgREST, headers anon, filtros, OEM vs visual, getPartById, Fail Fast, factoría |
-| `apps/mobile/test/live-backend-integration.test.ts` | 8 | Superado | 11 flujos de usuario contra Supabase Staging en vivo con 50 piezas persistidas |
+| `apps/mobile/test/live-backend-integration.test.ts` | 8 | Superado | 11 flujos de usuario contra Supabase Staging en vivo con inventario real |
 
 ---
 
-## 3. Instrucciones de Ejecución
+## 3. Instrucciones para la Ejecución y Prueba Manual
 
-### Comprobación de Pruebas y Tipado
+### 3.1. Comprobación Técnica Previa
 ```bash
-# Ejecutar los 85 tests del monorepo
+# 1. Comprobar suite completa (85 tests)
 npm test
 
-# Comprobar tipado TypeScript estricto en core y mobile
+# 2. Comprobar tipado estricto
 npm run typecheck
 ```
 
-### Ejecutar Sincronización Piloto a Staging
+### 3.2. Arrancar la Aplicación Móvil
 ```bash
-# Sincronizar lote controlado de hasta 50 piezas
-python3 scripts/sync_eurodesguace_pilot.py 50
-```
-
-### Iniciar Aplicación Móvil
-```bash
-# Modo backend conectado a staging
+# Iniciar servidor de desarrollo de Expo conectado a Supabase Staging
 npm run start -w @mobile-marketplace/mobile
 ```
+
+### 3.3. Abrir en Dispositivo
+- **iPhone Físico (Recomendado):** Instalar Expo Go, conectar el iPhone a la misma red Wi-Fi y escanear el código QR con la app Cámara.
+- **Simulador iOS:** Si Xcode completo está instalado, pulsar `i` en la terminal de Metro.
+
+---
+
+## 4. Guía de Pruebas
+Consultar el protocolo detallado en [docs/manual-testing-guide.md](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/manual-testing-guide.md).
