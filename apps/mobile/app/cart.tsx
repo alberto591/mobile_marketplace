@@ -58,9 +58,9 @@ export default function CartScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Info Banner */}
         <View style={styles.noticeBanner}>
-          <Text style={styles.noticeTitle}>Selección de piezas físicas únicas</Text>
+          <Text style={styles.noticeTitle}>Selección de piezas en catálogo</Text>
           <Text style={styles.noticeText}>
-            Cada pieza procede de un vehículo donante concreto en un CAT autorizado. El stock físico no queda reservado hasta la confirmación de disponibilidad con el desguace.
+            Cada pieza figura en el catálogo remitido por un CAT autorizado. El carrito es local en este dispositivo y las piezas no quedan reservadas. La disponibilidad física en almacén y los importes finales deben confirmarse con el desguace.
           </Text>
         </View>
 
@@ -145,7 +145,7 @@ export default function CartScreen() {
                         <Text style={styles.itemPrice}>
                           {formatMoney(item.part.price)}
                         </Text>
-                        <Text style={styles.itemVat}>IVA incl.</Text>
+                        <Text style={styles.itemVat}>Impuestos/portes por confirmar</Text>
                       </View>
                     </View>
 
@@ -173,7 +173,7 @@ export default function CartScreen() {
               </Text>
             </View>
             <Text style={styles.shippingNotice}>
-              Logística y transporte: A confirmar por {group.vendor.tradeName}
+              Precio publicado por el desguace. Impuestos aplicables y gastos de transporte por confirmar con {group.vendor.tradeName}.
             </Text>
           </View>
         ))}
@@ -192,7 +192,7 @@ export default function CartScreen() {
               {itemCount} {itemCount === 1 ? 'pieza seleccionada' : 'piezas seleccionadas'}
             </Text>
             <Text style={styles.subtotalValue}>{formatMoney(subtotal)}</Text>
-            <Text style={styles.subtotalHint}>Subtotal provisional · IVA incluido</Text>
+            <Text style={styles.subtotalHint}>Precio publicado · Impuestos y portes por confirmar</Text>
           </View>
 
           <Pressable

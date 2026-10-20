@@ -63,11 +63,11 @@ export default function ConfirmAvailabilityScreen() {
         {submitted ? (
           <View style={styles.confirmedBox}>
             <View style={styles.confirmedBadge}>
-              <Text style={styles.confirmedBadgeText}>Prototipo Local Registrado</Text>
+              <Text style={styles.confirmedBadgeText}>Consulta Guardada Localmente</Text>
             </View>
 
             <Text style={styles.confirmedHeading}>
-              Solicitud de comprobación registrada
+              Consulta registrada en el dispositivo
             </Text>
 
             <View style={styles.disclaimerWarningBox}>
@@ -75,10 +75,10 @@ export default function ConfirmAvailabilityScreen() {
                 Aviso importante sobre el estado de la integración
               </Text>
               <Text style={styles.disclaimerWarningBody}>
-                La API actual de Eurodesguace Málaga y CATs colaboradores es exclusivamente de solo lectura (catálogo público de inventario).
+                La API de los desguaces colaboradores es exclusivamente de solo lectura (catálogo público de inventario sin servicio de reserva telemática ni compraventa).
               </Text>
               <Text style={styles.disclaimerWarningBody}>
-                En esta versión MVP no existen endpoints telemáticos de reserva, checkout ni pasarela de pago activada. Por tanto, esta solicitud se ha almacenado localmente en tu dispositivo y no ha sido transmitida de forma automática a los servidores del desguace.
+                Esta solicitud NO se ha enviado al desguace y las piezas NO quedan reservadas. Los datos han quedado guardados localmente en tu dispositivo para que puedas contactar directamente con el centro con las referencias exactas preparadas.
               </Text>
             </View>
 
@@ -120,13 +120,13 @@ export default function ConfirmAvailabilityScreen() {
             {/* Warning Card: Stock Not Reserved */}
             <View style={styles.warningCard}>
               <Text style={styles.warningCardTitle}>
-                Atención: El stock no está reservado
+                Atención: Las piezas no quedan reservadas
               </Text>
               <Text style={styles.warningCardBody}>
-                El inventario de cada desguace se actualiza diariamente. Antes de tramitar cualquier pago o preparación física, el personal del CAT debe verificar la existencia en estantería, el estado de la pieza y los costes de transporte correspondientes.
+                Las piezas figuran como disponibles en el catálogo remitido periódicamente por cada desguace. La existencia física real en estantería, el estado del material y los costes de transporte deben ser verificados directamente con el CAT antes de tramitar cualquier pago.
               </Text>
               <Text style={styles.warningCardFootnote}>
-                No se te solicitarán datos de tarjeta ni pagos en esta pantalla.
+                Precio publicado por el desguace. Impuestos aplicables y gastos de transporte por confirmar. No se solicitarán tarjetas ni pagos en esta app.
               </Text>
             </View>
 
@@ -154,11 +154,11 @@ export default function ConfirmAvailabilityScreen() {
               ))}
 
               <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Subtotal piezas (IVA incl.):</Text>
+                <Text style={styles.totalLabel}>Subtotal piezas (precio publicado):</Text>
                 <Text style={styles.totalAmount}>{formatMoney(subtotal)}</Text>
               </View>
               <Text style={styles.provisionalNote}>
-                * Subtotal provisional. Los gastos de envío serán confirmados por cada desguace según destino y peso.
+                * Subtotal provisional sobre precios publicados por el desguace. Impuestos aplicables y gastos de transporte por confirmar con cada centro.
               </Text>
             </View>
 
@@ -166,7 +166,7 @@ export default function ConfirmAvailabilityScreen() {
             <View style={styles.formCard}>
               <Text style={styles.sectionHeading}>Datos para la comprobación</Text>
               <Text style={styles.formHint}>
-                El desguace utilizará estos datos para contactarte y verificar compatibilidad.
+                Estos datos se guardarán localmente en tu dispositivo como borrador de consulta para facilitar el contacto con el centro.
               </Text>
 
               <Text style={styles.label}>Tu nombre y apellidos *</Text>
@@ -214,15 +214,15 @@ export default function ConfirmAvailabilityScreen() {
                 style={styles.submitBtn}
                 onPress={handleSubmit}
                 accessibilityRole="button"
-                accessibilityLabel="Enviar solicitud de confirmación de disponibilidad"
+                accessibilityLabel="Registrar consulta de disponibilidad localmente"
               >
                 <Text style={styles.submitBtnText}>
-                  Solicitar confirmación de disponibilidad
+                  Registrar consulta de disponibilidad
                 </Text>
               </Pressable>
 
               <Text style={styles.submitNotice}>
-                Al enviar confirmas que comprendes que no se ha realizado ninguna compraventa ni reserva automática de stock.
+                Esta solicitud se registra exclusivamente de forma local en tu dispositivo. No se transmite automáticamente al desguace ni se realiza reserva de stock.
               </Text>
             </View>
           </View>

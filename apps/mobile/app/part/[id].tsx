@@ -183,9 +183,7 @@ export default function PartDetailScreen() {
             <View>
               <Text style={styles.price}>{formatMoney(part.price)}</Text>
               <Text style={styles.vatNote}>
-                {vendor.policies.shippingPolicySummary?.includes('IVA incluido')
-                  ? 'IVA incluido · Transporte según destino'
-                  : 'Precio base de inventario · Consultar condiciones en CAT'}
+                Precio publicado por el desguace · Impuestos y portes por confirmar
               </Text>
             </View>
 
@@ -201,7 +199,7 @@ export default function PartDetailScreen() {
                   isAvailable ? styles.stockTextAvailable : styles.stockTextUnavailable,
                 ]}
               >
-                {isAvailable ? 'En stock (confirmar con CAT)' : 'Agotado'}
+                {isAvailable ? 'Figura disponible en catálogo' : 'Agotado'}
               </Text>
             </View>
           </View>
@@ -403,7 +401,7 @@ export default function PartDetailScreen() {
               })}
             </Text>
             <Text style={styles.disclaimerText}>
-              Aviso de disponibilidad: El inventario del CAT se actualiza con frecuencia diaria. La disponibilidad final en el almacén físico debe ser confirmada previamente por el vendedor.
+              Aviso de disponibilidad: La pieza figura como disponible en el catálogo publicado por el CAT. Al no existir consulta en tiempo real ni sistema telemático de reservas, la existencia física final en estantería, impuestos aplicables y gastos de transporte deben ser confirmados previamente con el vendedor.
             </Text>
           </View>
         </View>
@@ -413,7 +411,7 @@ export default function PartDetailScreen() {
       <View style={styles.floatingBar}>
         <View style={styles.floatingPriceBox}>
           <Text style={styles.floatingPrice}>{formatMoney(part.price)}</Text>
-          <Text style={styles.floatingVat}>IVA incluido</Text>
+          <Text style={styles.floatingVat}>Impuestos y portes por confirmar</Text>
         </View>
 
         <View style={styles.floatingActionContainer}>
@@ -452,7 +450,7 @@ export default function PartDetailScreen() {
             </Text>
           </Pressable>
           <Text style={styles.floatingNoticeText}>
-            Stock físico no reservado hasta confirmación del CAT
+            Figura disponible en catálogo · Disponibilidad física a confirmar con el desguace
           </Text>
         </View>
       </View>

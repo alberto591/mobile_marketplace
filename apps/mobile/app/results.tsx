@@ -154,7 +154,7 @@ export default function ResultsScreen() {
             onPress={() => setOnlyAvailable(!onlyAvailable)}
           >
             <Text style={[styles.filterPillText, onlyAvailable && styles.filterPillTextActive]}>
-              En stock
+              Disponibles en catálogo
             </Text>
           </Pressable>
         </View>

@@ -117,7 +117,7 @@ export function PartCard({ item }: Props) {
         <View style={styles.footer}>
           <View>
             <Text style={styles.price}>{formatMoney(part.price)}</Text>
-            <Text style={styles.vatNote}>IVA incluido</Text>
+            <Text style={styles.vatNote}>Impuestos/portes por confirmar</Text>
           </View>
 
           <View style={styles.vendorInfo}>

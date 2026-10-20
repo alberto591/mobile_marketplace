@@ -30,9 +30,15 @@ Se ha auditado y estabilizado el catálogo en **Supabase Staging (`lmsjgxhzfksyr
 2. **Flujo de Confirmación de Disponibilidad (Honestidad Radical):**
    - **El stock no está reservado:** Se informa claramente al usuario de que el stock físico no se bloquea al añadir al carrito.
    - **Ausencia de checkout ficticio:** No se simulan compras con tarjeta ni pedidos confirmados.
-   - **Limitaciones de la API documentadas:** La API del desguace es de solo lectura; la solicitud se registra localmente en el dispositivo y se explican los bloqueos técnicos reales.
+   - **Limitaciones de la API documentadas:** La API del desguace es de solo lectura y de actualización periódica; la solicitud se registra estrictamente de forma local en el dispositivo y no se transmite a servidores del CAT.
 
-3. **Resolución de Imágenes Externas (Edge Function Image Proxy):**
+3. **Revisión de Honestidad Comercial y Tratamiento Fiscal:**
+   - **Eliminación de afirmaciones sobre IVA:** Al no existir confirmación contractual de que los precios de inventario incluyan IVA ni desglose fiscal completo en la API, se eliminaron las leyendas de «IVA incluido» en todas las pantallas (fichas, tarjetas, modal de consulta, carrito y confirmación), sustituyéndolas por la advertencia prudente: «Precio publicado por el desguace. Impuestos aplicables y gastos de transporte por confirmar».
+   - **Significado estricto de `AVAILABLE`:** Las piezas con dicho estado muestran «Figura disponible en catálogo» y notas de advertencia explícitas indicando que la existencia física real en almacén debe confirmarse con el vendedor.
+   - **Filtro de búsqueda sincero:** El filtro de disponibilidad en resultados se etiqueta como «Disponibles en catálogo» en lugar de «En stock».
+   - **Claridad sobre el guardado local:** La pantalla de confirmación deja constancia de que los datos quedan guardados como borrador local en el dispositivo para facilitar el contacto con el desguace, sin fingir transmisiones a servidores externos.
+
+4. **Resolución de Imágenes Externas (Edge Function Image Proxy):**
    - **Causa raíz diagnosticada:** El certificado SSL wildcard del CDN externo del desguace (`cdn11.metasync.com`) caducó el 19 de octubre de 2026 a las 23:59:59 GMT (`verify error:num=10:certificate has expired`). iOS App Transport Security (ATS) bloquea tajantemente conexiones a certificados caducados en dispositivos físicos.
    - **Solución arquitectónica desplegada (Opción A):**
      - Despliegue de la Edge Function `image-proxy` en Supabase Staging (`lmsjgxhzfksyrlxyqndd`).

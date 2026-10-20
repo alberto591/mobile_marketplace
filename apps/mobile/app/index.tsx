@@ -190,7 +190,7 @@ export default function HomeScreen() {
             <View style={styles.trustContent}>
               <Text style={styles.trustTitle}>Solo Centros CAT Autorizados</Text>
               <Text style={styles.trustDesc}>
-                Inventario verificado conforme al Real Decreto 265/2021 de vehículos al final de su vida útil.
+                Centros autorizados de tratamiento de vehículos conforme al Real Decreto 265/2021.
               </Text>
             </View>
           </View>

@@ -59,7 +59,7 @@ export function InquiryModal({ visible, part, vendor, onClose }: Props) {
             {/* Part summary */}
             <View style={styles.partSummary}>
               <Text style={styles.partTitle} numberOfLines={2}>{part.title}</Text>
-              <Text style={styles.partPrice}>{formatMoney(part.price)} · IVA incl.</Text>
+              <Text style={styles.partPrice}>{formatMoney(part.price)} · Impuestos/portes por confirmar</Text>
               <Text style={styles.vendorNotice}>
                 Gestionado por {vendor.tradeName} ({vendor.catAuthorizationCode})
               </Text>
@@ -69,10 +69,10 @@ export function InquiryModal({ visible, part, vendor, onClose }: Props) {
               <View style={styles.confirmationBox}>
                 <Text style={styles.confirmTitle}>Solicitud de consulta registrada</Text>
                 <Text style={styles.confirmText}>
-                  [Modo prueba / Prototipo]: Los datos para consultar la pieza #{part.source.externalPartId} ({vendor.tradeName}) se han registrado localmente en la interfaz.
+                  Los datos para consultar la pieza #{part.source.externalPartId} ({vendor.tradeName}) se han guardado únicamente de forma local en tu dispositivo.
                 </Text>
                 <Text style={styles.confirmNote}>
-                  Aviso: En esta fase de staging no se realiza envío telemático externo al CAT ni se bloquea stock físico.
+                  Aviso: No se ha realizado transmisión telemática al desguace ni la pieza física ha quedado reservada. Contacta con el CAT para confirmar existencias e importes finales.
                 </Text>
 
                 <Pressable style={styles.confirmBtn} onPress={handleResetAndClose}>
@@ -82,7 +82,7 @@ export function InquiryModal({ visible, part, vendor, onClose }: Props) {
             ) : (
               <View style={styles.form}>
                 <Text style={styles.disclaimerText}>
-                  No cobramos nada por adelantado. El desguace verificará que la pieza sigue en almacén y resolverá tus dudas técnicas.
+                  La pieza figura en el catálogo publicado. La existencia física real, impuestos aplicables y gastos de transporte deben confirmarse directamente con el desguace.
                 </Text>
 
                 <Text style={styles.inputLabel}>Tu nombre *</Text>
