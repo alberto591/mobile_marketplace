@@ -46,16 +46,17 @@ describe('Live Backend Catalog & 9 Application Flows (Staging Integration)', () 
     });
   };
 
-  it('Flujo 1 & 2: Realiza búsqueda de "CALEFACCION" y devuelve exactamente los 2 recambios reales', async () => {
+  it('Flujo 1 & 2: Realiza búsqueda de "CALEFACCION" y devuelve los 3 recambios reales en staging', async () => {
     const service = getService();
     const result = await service.search({ query: 'CALEFACCION' });
 
-    expect(result.totalCount).toBe(2);
-    expect(result.items).toHaveLength(2);
+    expect(result.totalCount).toBe(3);
+    expect(result.items).toHaveLength(3);
 
     const titles = result.items.map((i) => i.part.title);
     expect(titles).toContain('MANDO CALEFACCION / AIRE ACONDICIONADO');
     expect(titles).toContain('RESISTENCIA CALEFACCION');
+    expect(titles).toContain('CENTRALITA CALEFACCION');
   });
 
   it('Flujo 3: Verifica que los recambios proceden de Eurodesguace Málaga con donantes reales', async () => {
@@ -109,10 +110,11 @@ describe('Live Backend Catalog & 9 Application Flows (Staging Integration)', () 
       sortBy: 'price_asc',
     });
 
-    expect(result.items).toHaveLength(2);
-    // 27.95 EUR (Resistencia) debe aparecer antes que 42.95 EUR (Mando)
+    expect(result.items).toHaveLength(3);
+    // Orden ascendente: 27.95 (Resistencia) < 32.95 (Centralita) < 42.95 (Mando)
     expect(result.items[0].part.price.amountInCents).toBe(2795);
-    expect(result.items[1].part.price.amountInCents).toBe(4295);
+    expect(result.items[1].part.price.amountInCents).toBe(3295);
+    expect(result.items[2].part.price.amountInCents).toBe(4295);
   });
 
   it('Flujo 7: Consulta sin resultados devuelve totalCount=0 sin errores', async () => {
@@ -138,5 +140,42 @@ describe('Live Backend Catalog & 9 Application Flows (Staging Integration)', () 
     await expect(
       failingService.getPartById('some-part-id')
     ).rejects.toThrow(BackendCatalogError);
+  });
+
+  it('Flujo 10: Recupera pieza recién sincronizada en el lote de 50 (MOTOR ELEVALUNAS ref 91032)', async () => {
+    const service = getService();
+    const searchRes = await service.search({ query: 'ELEVALUNAS' });
+
+    expect(searchRes.items.length).toBeGreaterThanOrEqual(1);
+    const elevalunasItem = searchRes.items.find(
+      (i) => i.part.source.externalPartId === '91032'
+    );
+    expect(elevalunasItem).toBeDefined();
+
+    const detail = await service.getPartById(elevalunasItem!.part.id);
+    expect(detail).not.toBeNull();
+    expect(detail!.part.title).toContain('MOTOR ELEVALUNAS');
+    expect(detail!.part.price.amountInCents).toBe(2795);
+    expect(formatMoney(detail!.part.price)).toBe('27,95 EUR');
+    expect(detail!.vendor.tradeName).toBe('Eurodesguace Málaga');
+    expect(detail!.part.images.length).toBe(4);
+    expect(detail!.part.donorVehicle?.donorVehicleCode).toBeDefined();
+
+    // Verificación de referencia visual no garantizada
+    if (detail!.part.oemReferences.length > 0) {
+      expect(detail!.part.oemReferences[0].referenceType).toBe('REFERENCIA_VISUAL');
+      expect(detail!.compatibility.isGuaranteed).toBe(false);
+    }
+  });
+
+  it('Flujo 11: Segundo proveedor simulado permanece aislado y etiquetado', async () => {
+    const mockService = createCatalogService({ dataSource: 'mock' });
+    const result = await mockService.search({ query: '' });
+
+    expect(result.totalCount).toBeGreaterThan(0);
+    // El modo mock agrega ambos proveedores simulados
+    const vendors = Array.from(new Set(result.items.map((i) => i.vendor.tradeName)));
+    expect(vendors).toContain('Eurodesguace Málaga');
+    expect(vendors).toContain('Desguace Alpha Madrid');
   });
 });

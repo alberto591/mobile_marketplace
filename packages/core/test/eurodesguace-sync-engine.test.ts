@@ -259,4 +259,26 @@ describe('EurodesguaceSyncEngine', () => {
     expect(logged.failedCount).toBe(0);
     expect(logged.batchId).toMatch(/^sync_/);
   });
+
+  it('enforces a strict maximum server limit of 50 items per batch', async () => {
+    let capturedPageSize: number | undefined;
+    const adapter: ScrapYardAdapter<EurodesguaceRawPart> = {
+      providerId: 'eurodesguace_malaga',
+      async fetchCatalog(options): Promise<CatalogPage<EurodesguaceRawPart>> {
+        capturedPageSize = options.pageSize;
+        return { items: [], hasMore: false };
+      },
+      async fetchPartDetail() {
+        return null;
+      },
+      normalizePart() {
+        return ok({} as any);
+      },
+    };
+
+    const engine = new EurodesguaceSyncEngine(adapter, 'vendor_eurodesguace');
+    await engine.processBatch({ limit: 100 });
+
+    expect(capturedPageSize).toBe(50);
+  });
 });

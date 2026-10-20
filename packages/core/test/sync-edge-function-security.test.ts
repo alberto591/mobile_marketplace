@@ -114,4 +114,30 @@ describe('Eurodesguace Edge Function Security & Authorization', () => {
     expect(textBody).not.toContain('test-secret-provider-key');
     expect(textBody).not.toContain('test-service-role-admin-token');
   });
+
+  it('clamps requested limit to maximum 50 items on server side', async () => {
+    let capturedUrl = '';
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce(async (input: any) => {
+      capturedUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          data: [],
+          meta: { total: 0, next_cursor: null },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+
+    const req = new Request('http://localhost/eurodesguace-sync?action=sync-batch&limit=200', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer test-service-role-admin-token',
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(capturedUrl).toContain('limit=50');
+  });
 });

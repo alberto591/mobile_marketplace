@@ -63,9 +63,13 @@ export class EurodesguaceSyncEngine {
     const startedAt = new Date();
     const batchId = `sync_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+    const MAX_BATCH_LIMIT = 50;
+    const requestedLimit = options.limit !== undefined ? options.limit : 50;
+    const effectiveLimit = Math.min(Math.max(1, requestedLimit), MAX_BATCH_LIMIT);
+
     const pageResult = await this.adapter.fetchCatalog({
       cursor: options.cursor,
-      pageSize: options.limit ? Math.min(options.limit, 100) : 50,
+      pageSize: effectiveLimit,
       updatedAfter: options.updatedAfter,
     });
 

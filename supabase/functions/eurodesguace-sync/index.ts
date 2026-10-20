@@ -191,7 +191,9 @@ export async function handler(req: Request): Promise<Response> {
         );
       }
 
-      const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 100);
+      const MAX_BATCH_LIMIT = 50;
+      const rawLimit = parseInt(url.searchParams.get('limit') || '50', 10);
+      const limit = Math.min(Math.max(1, isNaN(rawLimit) ? 50 : rawLimit), MAX_BATCH_LIMIT);
       const cursor = url.searchParams.get('cursor') || undefined;
       const updatedSince = url.searchParams.get('updated_since') || undefined;
 
