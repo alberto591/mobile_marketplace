@@ -30,6 +30,7 @@ export default function ResultsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<CatalogSearchResult | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<string | undefined>(undefined);
+  const [discoveredVendors, setDiscoveredVendors] = useState<Array<{ id: string; name: string }>>([]);
   const [onlyAvailable, setOnlyAvailable] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<SortOrderOption>('relevance');
 
@@ -53,6 +54,16 @@ export default function ResultsScreen() {
 
         if (isMounted) {
           setResults(res);
+          setDiscoveredVendors((prev) => {
+            const map = new Map<string, string>();
+            for (const v of prev) map.set(v.id, v.name);
+            for (const item of res.items) {
+              if (item.vendor?.id && item.vendor?.tradeName) {
+                map.set(item.vendor.id, item.vendor.tradeName);
+              }
+            }
+            return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+          });
         }
       } catch (err: any) {
         if (isMounted) {
@@ -118,37 +129,24 @@ export default function ResultsScreen() {
             </Text>
           </Pressable>
 
-          <Pressable
-            style={[styles.filterPill, selectedVendor === 'vendor_alpha' && styles.filterPillActive]}
-            onPress={() =>
-              setSelectedVendor(selectedVendor === 'vendor_alpha' ? undefined : 'vendor_alpha')
-            }
-          >
-            <Text
-              style={[
-                styles.filterPillText,
-                selectedVendor === 'vendor_alpha' && styles.filterPillTextActive,
-              ]}
+          {discoveredVendors.map((vendor) => (
+            <Pressable
+              key={vendor.id}
+              style={[styles.filterPill, selectedVendor === vendor.id && styles.filterPillActive]}
+              onPress={() =>
+                setSelectedVendor(selectedVendor === vendor.id ? undefined : vendor.id)
+              }
             >
-              Alpha Madrid
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.filterPill, selectedVendor === 'vendor_beta' && styles.filterPillActive]}
-            onPress={() =>
-              setSelectedVendor(selectedVendor === 'vendor_beta' ? undefined : 'vendor_beta')
-            }
-          >
-            <Text
-              style={[
-                styles.filterPillText,
-                selectedVendor === 'vendor_beta' && styles.filterPillTextActive,
-              ]}
-            >
-              Beta Valencia
-            </Text>
-          </Pressable>
+              <Text
+                style={[
+                  styles.filterPillText,
+                  selectedVendor === vendor.id && styles.filterPillTextActive,
+                ]}
+              >
+                {vendor.name}
+              </Text>
+            </Pressable>
+          ))}
 
           {/* Availability Filter */}
           <Pressable
