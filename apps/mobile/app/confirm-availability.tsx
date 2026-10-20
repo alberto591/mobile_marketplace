@@ -1,37 +1,100 @@
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import type { SubmitInquiryResponse } from '@mobile-marketplace/core';
 import { formatMoney } from '@mobile-marketplace/core';
 import { useCart } from '../services/cart-context';
+import { inquiryService } from '../services/inquiry.service';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
+
+function generateClientUuid(): string {
+  const c = typeof crypto !== 'undefined' ? crypto : (globalThis as any).crypto;
+  if (c && c.randomUUID) {
+    return c.randomUUID();
+  }
+  return 'idemp-' + Math.random().toString(36).substring(2, 15) + '-' + Date.now().toString(36);
+}
 
 export default function ConfirmAvailabilityScreen() {
   const { items, itemCount, subtotal, vendorGroups, clearCart } = useCart();
 
-  const [buyerName, setBuyerName] = useState('');
-  const [contactInfo, setContactInfo] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [vehicleVin, setVehicleVin] = useState('');
-  const [deliveryNotes, setDeliveryNotes] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const [vehiclePlate, setVehiclePlate] = useState('');
+  const [customerMessage, setCustomerMessage] = useState('');
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
-  const handleSubmit = () => {
-    if (!buyerName.trim() || !contactInfo.trim()) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submissionResult, setSubmissionResult] = useState<SubmitInquiryResponse | null>(null);
+
+  // Preserve idempotency key per form session
+  const idempotencyKey = useMemo(() => generateClientUuid(), []);
+
+  const handleSubmit = async () => {
+    setSubmitError(null);
+
+    const cleanName = customerName.trim();
+    const cleanEmail = customerEmail.trim();
+    const cleanPhone = customerPhone.trim();
+
+    if (!cleanName || cleanName.length < 2) {
+      Alert.alert('Nombre requerido', 'Por favor, indica tu nombre completo (mínimo 2 caracteres).');
+      return;
+    }
+
+    if (!cleanEmail && !cleanPhone) {
       Alert.alert(
-        'Datos de contacto requeridos',
-        'Por favor, indica tu nombre y un teléfono o correo electrónico para que el desguace pueda responderte.'
+        'Medio de contacto requerido',
+        'Por favor, facilita al menos un medio de contacto (teléfono o correo electrónico) para que el desguace pueda responderte.'
       );
       return;
     }
 
-    setSubmitted(true);
+    if (!privacyAccepted) {
+      Alert.alert(
+        'Aviso de privacidad requerido',
+        'Debes aceptar el aviso de privacidad para tramitar la consulta con el desguace colaborador.'
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await inquiryService.submitInquiry({
+        customerName: cleanName,
+        customerEmail: cleanEmail || undefined,
+        customerPhone: cleanPhone || undefined,
+        customerMessage: customerMessage.trim() || undefined,
+        vehicleVin: vehicleVin.trim() || undefined,
+        vehiclePlate: vehiclePlate.trim() || undefined,
+        items: items.map((it) => ({ partId: it.part.id })),
+        privacyConsent: {
+          accepted: true,
+          version: 'v1.0',
+        },
+        idempotencyKey,
+      });
+
+      setSubmissionResult(response);
+    } catch (err: any) {
+      setSubmitError(err?.message || 'Error al conectar con el servidor para registrar la consulta.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleFinish = (clearSelection: boolean) => {
@@ -41,7 +104,7 @@ export default function ConfirmAvailabilityScreen() {
     router.replace('/');
   };
 
-  if (itemCount === 0 && !submitted) {
+  if (itemCount === 0 && !submissionResult) {
     return (
       <View style={styles.screen}>
         <View style={styles.container}>
@@ -60,43 +123,70 @@ export default function ConfirmAvailabilityScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {submitted ? (
+        {submissionResult ? (
           <View style={styles.confirmedBox}>
             <View style={styles.confirmedBadge}>
-              <Text style={styles.confirmedBadgeText}>Consulta Guardada Localmente</Text>
+              <Text style={styles.confirmedBadgeText}>Consulta Registrada en Servidor</Text>
             </View>
 
             <Text style={styles.confirmedHeading}>
-              Consulta registrada en el dispositivo
+              Solicitud recibida correctamente
             </Text>
+
+            <Text style={styles.confirmedSub}>
+              Tu consulta comercial ha sido registrada en el sistema central y asignada a cada desguace colaborador.
+            </Text>
+
+            {/* Inquiries by vendor summary */}
+            <View style={styles.referencesCard}>
+              <Text style={styles.referencesCardTitle}>Referencias de seguimiento:</Text>
+              {submissionResult.inquiries.map((inq) => {
+                const isSent = inq.notificationStatus === 'SENT';
+                const isFailed = inq.notificationStatus === 'FAILED';
+                const isSkipped = inq.notificationStatus === 'SKIPPED_NOT_CONFIGURED';
+
+                let badgeLabel = 'En cola de notificación';
+                let badgeStyle = styles.badgePending;
+                if (isSent) {
+                  badgeLabel = 'Notificación enviada por email al desguace';
+                  badgeStyle = styles.badgeSent;
+                } else if (isFailed) {
+                  badgeLabel = 'Registrada (notificación pendiente de reintento)';
+                  badgeStyle = styles.badgeFailed;
+                } else if (isSkipped) {
+                  badgeLabel = 'Registrada en backend (pendiente config. comercial)';
+                  badgeStyle = styles.badgePending;
+                }
+
+                return (
+                  <View key={inq.inquiryId} style={styles.referenceRow}>
+                    <View style={styles.referenceHeader}>
+                      <Text style={styles.vendorTitle}>{inq.vendorTradeName}</Text>
+                      <Text style={styles.refCode}>{inq.inquiryReference}</Text>
+                    </View>
+                    <View style={[styles.statusPill, badgeStyle]}>
+                      <Text style={styles.statusPillText}>{badgeLabel}</Text>
+                    </View>
+                    <Text style={styles.refItemCount}>
+                      {inq.itemCount} {inq.itemCount === 1 ? 'pieza consultada' : 'piezas consultadas'}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
 
             <View style={styles.disclaimerWarningBox}>
               <Text style={styles.disclaimerWarningTitle}>
-                Aviso importante sobre el estado de la integración
+                Siguientes pasos e información comercial
               </Text>
               <Text style={styles.disclaimerWarningBody}>
-                La API de los desguaces colaboradores es exclusivamente de solo lectura (catálogo público de inventario sin servicio de reserva telemática ni compraventa).
+                1. El personal del CAT verificará la existencia física en estantería y el estado del recambio.
               </Text>
               <Text style={styles.disclaimerWarningBody}>
-                Esta solicitud NO se ha enviado al desguace y las piezas NO quedan reservadas. Los datos han quedado guardados localmente en tu dispositivo para que puedas contactar directamente con el centro con las referencias exactas preparadas.
+                2. Te contactarán directamente al teléfono ({customerPhone || 'no indicado'}) o correo ({customerEmail || 'no indicado'}) para indicarte el importe definitivo con transporte y las formas de pago del centro.
               </Text>
-            </View>
-
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryHeading}>Resumen de la consulta:</Text>
-              <Text style={styles.summaryRowText}>
-                Interesado: <Text style={styles.bold}>{buyerName}</Text> ({contactInfo})
-              </Text>
-              {vehicleVin ? (
-                <Text style={styles.summaryRowText}>
-                  Vehículo / Bastidor: <Text style={styles.bold}>{vehicleVin}</Text>
-                </Text>
-              ) : null}
-              <Text style={styles.summaryRowText}>
-                Artículos: <Text style={styles.bold}>{itemCount} piezas</Text>
-              </Text>
-              <Text style={styles.summaryRowText}>
-                Subtotal provisional: <Text style={styles.bold}>{formatMoney(subtotal)}</Text>
+              <Text style={styles.disclaimerWarningBody}>
+                3. Recuerda que no se ha realizado ninguna reserva de material ni cargo en tarjeta.
               </Text>
             </View>
 
@@ -123,7 +213,7 @@ export default function ConfirmAvailabilityScreen() {
                 Atención: Las piezas no quedan reservadas
               </Text>
               <Text style={styles.warningCardBody}>
-                Las piezas figuran como disponibles en el catálogo remitido periódicamente por cada desguace. La existencia física real en estantería, el estado del material y los costes de transporte deben ser verificados directamente con el CAT antes de tramitar cualquier pago.
+                Los recambios figuran como disponibles en el catálogo remitido periódicamente por cada desguace. La existencia física real en estantería, el estado del material y los costes de transporte deben ser verificados directamente con el CAT antes de tramitar cualquier pago.
               </Text>
               <Text style={styles.warningCardFootnote}>
                 Precio publicado por el desguace. Impuestos aplicables y gastos de transporte por confirmar. No se solicitarán tarjetas ni pagos en esta app.
@@ -162,11 +252,19 @@ export default function ConfirmAvailabilityScreen() {
               </Text>
             </View>
 
+            {/* Error banner if submit failed */}
+            {submitError ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorTitle}>Error al enviar la consulta</Text>
+                <Text style={styles.errorBody}>{submitError}</Text>
+              </View>
+            ) : null}
+
             {/* Contact Form */}
             <View style={styles.formCard}>
-              <Text style={styles.sectionHeading}>Datos para la comprobación</Text>
+              <Text style={styles.sectionHeading}>Datos de contacto y consulta</Text>
               <Text style={styles.formHint}>
-                Estos datos se guardarán localmente en tu dispositivo como borrador de consulta para facilitar el contacto con el centro.
+                El desguace utilizará estos datos para responderte directamente e informarte sobre disponibilidad y transporte.
               </Text>
 
               <Text style={styles.label}>Tu nombre y apellidos *</Text>
@@ -174,22 +272,38 @@ export default function ConfirmAvailabilityScreen() {
                 style={styles.input}
                 placeholder="Ej. Juan Pérez"
                 placeholderTextColor={colors.textMuted}
-                value={buyerName}
-                onChangeText={setBuyerName}
+                value={customerName}
+                onChangeText={setCustomerName}
+                editable={!isSubmitting}
               />
 
-              <Text style={styles.label}>Teléfono o Correo electrónico *</Text>
+              <Text style={styles.label}>Correo electrónico</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Ej. 612 345 678 o juan@ejemplo.com"
+                placeholder="Ej. juan@ejemplo.com"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                value={contactInfo}
-                onChangeText={setContactInfo}
+                value={customerEmail}
+                onChangeText={setCustomerEmail}
+                editable={!isSubmitting}
               />
 
-              <Text style={styles.label}>Número de bastidor (VIN) o matrícula (opcional)</Text>
+              <Text style={styles.label}>Teléfono de contacto</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ej. 612 345 678"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="phone-pad"
+                value={customerPhone}
+                onChangeText={setCustomerPhone}
+                editable={!isSubmitting}
+              />
+              <Text style={styles.fieldNote}>
+                * Indica al menos un teléfono o correo electrónico para recibir respuesta.
+              </Text>
+
+              <Text style={styles.label}>Número de bastidor (VIN) (opcional)</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Recomendado para comprobar compatibilidad exacta en CAT"
@@ -197,6 +311,18 @@ export default function ConfirmAvailabilityScreen() {
                 autoCapitalize="characters"
                 value={vehicleVin}
                 onChangeText={setVehicleVin}
+                editable={!isSubmitting}
+              />
+
+              <Text style={styles.label}>Matrícula del vehículo (opcional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ej. 1234XYZ"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="characters"
+                value={vehiclePlate}
+                onChangeText={setVehiclePlate}
+                editable={!isSubmitting}
               />
 
               <Text style={styles.label}>Observaciones o dudas técnicas (opcional)</Text>
@@ -206,23 +332,50 @@ export default function ConfirmAvailabilityScreen() {
                 placeholderTextColor={colors.textMuted}
                 multiline
                 numberOfLines={3}
-                value={deliveryNotes}
-                onChangeText={setDeliveryNotes}
+                value={customerMessage}
+                onChangeText={setCustomerMessage}
+                editable={!isSubmitting}
               />
 
-              <Pressable
-                style={styles.submitBtn}
-                onPress={handleSubmit}
-                accessibilityRole="button"
-                accessibilityLabel="Registrar consulta de disponibilidad localmente"
-              >
-                <Text style={styles.submitBtnText}>
-                  Registrar consulta de disponibilidad
+              {/* Privacy Consent Checkbox */}
+              <View style={styles.privacyRow}>
+                <Switch
+                  value={privacyAccepted}
+                  onValueChange={setPrivacyAccepted}
+                  trackColor={{ false: colors.border, true: colors.accent }}
+                  thumbColor={colors.card}
+                  disabled={isSubmitting}
+                />
+                <Text style={styles.privacyText}>
+                  He leído y acepto el{' '}
+                  <Text style={styles.privacyLink}>aviso de privacidad</Text> para la tramitación de esta consulta comercial con los Centros CAT colaboradores.
                 </Text>
+              </View>
+
+              <Pressable
+                style={[
+                  styles.submitBtn,
+                  (!privacyAccepted || isSubmitting) && styles.submitBtnDisabled,
+                ]}
+                onPress={handleSubmit}
+                disabled={!privacyAccepted || isSubmitting}
+                accessibilityRole="button"
+                accessibilityLabel="Enviar consulta comercial de disponibilidad"
+              >
+                {isSubmitting ? (
+                  <View style={styles.submittingRow}>
+                    <ActivityIndicator size="small" color={colors.textInverse} />
+                    <Text style={styles.submitBtnText}>Enviando consulta al backend...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.submitBtnText}>
+                    Enviar consulta de disponibilidad
+                  </Text>
+                )}
               </Pressable>
 
               <Text style={styles.submitNotice}>
-                Esta solicitud se registra exclusivamente de forma local en tu dispositivo. No se transmite automáticamente al desguace ni se realiza reserva de stock.
+                La consulta se enviará de forma segura al desguace. No se realiza ningún cobro ni reserva automática de stock.
               </Text>
             </View>
           </View>
@@ -239,9 +392,10 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: spacing.md,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 60,
   },
   container: {
+    flex: 1,
     padding: spacing.xl,
     alignItems: 'center',
     justifyContent: 'center',
@@ -250,268 +404,360 @@ const styles = StyleSheet.create({
     ...typography.titleMedium,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   emptyText: {
-    fontSize: 13,
+    ...typography.body,
     color: colors.textSecondary,
     textAlign: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
+    lineHeight: 22,
   },
   warningCard: {
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    borderRadius: borderRadius.lg,
+    backgroundColor: colors.warningBg,
     padding: spacing.md,
+    borderRadius: borderRadius.md,
     marginBottom: spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.warning,
   },
   warningCardTitle: {
     fontSize: 14,
-    fontWeight: '800',
-    color: '#92400E',
+    fontWeight: '700',
+    color: colors.warning,
     marginBottom: 4,
   },
   warningCardBody: {
     fontSize: 12,
-    color: '#78350F',
-    lineHeight: 17,
+    color: colors.textPrimary,
+    lineHeight: 18,
     marginBottom: 6,
   },
   warningCardFootnote: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#92400E',
+    color: colors.textSecondary,
+    fontWeight: '600',
+    fontStyle: 'italic',
   },
   selectionCard: {
     backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.md,
   },
   sectionHeading: {
-    ...typography.titleMedium,
+    ...typography.titleSmall,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
   },
   vendorGroupSummary: {
-    backgroundColor: colors.cardSecondary,
-    borderRadius: borderRadius.md,
-    padding: spacing.sm,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   groupVendorName: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    color: colors.primary,
-    marginBottom: 4,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
   },
   miniItemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 2,
+    alignItems: 'center',
+    paddingVertical: 4,
   },
   miniItemTitle: {
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textPrimary,
     flex: 1,
     marginRight: spacing.sm,
   },
   miniItemPrice: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
   },
   groupSubtotalText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textSecondary,
+    fontSize: 12,
+    color: colors.textMuted,
     textAlign: 'right',
     marginTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: 2,
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: spacing.xs,
-    paddingTop: spacing.xs,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
   totalLabel: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
     color: colors.textPrimary,
   },
   totalAmount: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.accent,
+    ...typography.price,
+    color: colors.textPrimary,
   },
   provisionalNote: {
-    fontSize: 10,
+    fontSize: 11,
     color: colors.textMuted,
+    marginTop: 6,
     fontStyle: 'italic',
-    marginTop: 4,
+  },
+  errorBox: {
+    backgroundColor: '#fee2e2',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ef4444',
+  },
+  errorTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#991b1b',
+    marginBottom: 4,
+  },
+  errorBody: {
+    fontSize: 12,
+    color: '#b91c1c',
+    lineHeight: 18,
   },
   formCard: {
     backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.md,
   },
   formHint: {
     fontSize: 12,
     color: colors.textSecondary,
     marginBottom: spacing.md,
+    lineHeight: 18,
   },
   label: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
     color: colors.textPrimary,
+    marginBottom: 6,
+    marginTop: spacing.sm,
+  },
+  fieldNote: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 4,
     marginBottom: 4,
   },
   input: {
     backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: colors.borderStrong,
-    borderRadius: borderRadius.md,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: 13,
+    paddingVertical: spacing.sm + 2,
+    fontSize: 14,
     color: colors.textPrimary,
-    marginBottom: spacing.md,
   },
   textArea: {
     height: 70,
     textAlignVertical: 'top',
+  },
+  privacyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  privacyText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    flex: 1,
+    marginLeft: spacing.sm,
+    lineHeight: 18,
+  },
+  privacyLink: {
+    color: colors.accent,
+    fontWeight: '600',
   },
   submitBtn: {
     backgroundColor: colors.accent,
     paddingVertical: spacing.md,
     borderRadius: borderRadius.md,
     alignItems: 'center',
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  submitBtnDisabled: {
+    backgroundColor: colors.textMuted,
+  },
+  submittingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   submitBtnText: {
     color: colors.textInverse,
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 15,
   },
   submitNotice: {
-    fontSize: 10,
+    fontSize: 11,
     color: colors.textMuted,
     textAlign: 'center',
     marginTop: spacing.sm,
-    lineHeight: 14,
-  },
-  confirmedBox: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    alignItems: 'center',
-  },
-  confirmedBadge: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.full,
-    marginBottom: spacing.md,
-  },
-  confirmedBadgeText: {
-    color: colors.textInverse,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  confirmedHeading: {
-    ...typography.titleLarge,
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: spacing.md,
-  },
-  disclaimerWarningBox: {
-    backgroundColor: colors.cardSecondary,
-    borderRadius: borderRadius.md,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.warning,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    width: '100%',
-  },
-  disclaimerWarningTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginBottom: 4,
-  },
-  disclaimerWarningBody: {
-    fontSize: 11,
-    color: colors.textSecondary,
     lineHeight: 16,
-    marginBottom: 4,
-  },
-  summaryCard: {
-    backgroundColor: colors.background,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    width: '100%',
-    marginBottom: spacing.lg,
-  },
-  summaryHeading: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    marginBottom: 6,
-  },
-  summaryRowText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 2,
-  },
-  bold: {
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  actionButtonsRow: {
-    flexDirection: 'row',
-    width: '100%',
   },
   primaryBtn: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.accent,
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
     borderRadius: borderRadius.md,
     alignItems: 'center',
   },
   primaryBtnText: {
     color: colors.textInverse,
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 13,
     textAlign: 'center',
   },
   secondaryBtn: {
     backgroundColor: colors.cardSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
     borderRadius: borderRadius.md,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   secondaryBtnText: {
     color: colors.textPrimary,
     fontWeight: '600',
-    fontSize: 12,
+    fontSize: 13,
     textAlign: 'center',
+  },
+  confirmedBox: {
+    padding: spacing.md,
+  },
+  confirmedBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+    marginBottom: spacing.sm,
+  },
+  confirmedBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803d',
+  },
+  confirmedHeading: {
+    ...typography.titleMedium,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  confirmedSub: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+    lineHeight: 18,
+  },
+  referencesCard: {
+    backgroundColor: colors.card,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  referencesCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  referenceRow: {
+    backgroundColor: colors.background,
+    padding: spacing.sm + 2,
+    borderRadius: borderRadius.sm,
+    marginBottom: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  referenceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  vendorTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  refCode: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.accent,
+    backgroundColor: colors.cardSecondary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  statusPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginVertical: 4,
+  },
+  badgeSent: {
+    backgroundColor: '#dcfce7',
+  },
+  badgePending: {
+    backgroundColor: '#fef3c7',
+  },
+  badgeFailed: {
+    backgroundColor: '#fee2e2',
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  refItemCount: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  disclaimerWarningBox: {
+    backgroundColor: colors.cardSecondary,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.lg,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.accent,
+  },
+  disclaimerWarningTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  disclaimerWarningBody: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 6,
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    marginTop: spacing.sm,
   },
 });

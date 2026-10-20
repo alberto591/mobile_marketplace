@@ -1,62 +1,41 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
 - **Fecha de actualización:** 2026-10-20
-- **Fase completada:** Fase 2 — Mejora del MVP: Carrito de Recambios, Hardening de Image Proxy y Validación Final
-- **Estado de pruebas:** 113 pruebas automatizadas pasando al 100% (75 en `@mobile-marketplace/core`, 38 en `@mobile-marketplace/mobile`)
+- **Fase completada:** Paso 13 — Activación y Verificación Exitosa de Notificaciones Reales por Email en Staging
+- **Estado de pruebas:** 129 pruebas automatizadas pasando al 100% (91 en `@mobile-marketplace/core`, 38 en `@mobile-marketplace/mobile`)
 - **Tipado estático:** TypeScript estricto (`tsc --noEmit`) superado con 0 errores en core y mobile
-- **Compilación móvil:** Bundle iOS para Hermes verificado (1166 módulos, 2.7MB), configurable en modo `backend` (PostgREST directo a staging) y modo `mock`
+- **Compilación móvil:** Bundle iOS para Hermes verificado (1166 módulos), configurable en modo `backend` (PostgREST directo a staging) y modo `mock`
 - **Proyecto Supabase Staging:** `lmsjgxhzfksyrlxyqndd` (West Europe - Ireland)
-- **Edge Functions Desplegadas:** `sync-batch` (sincronización protegida), `image-proxy` (proxy de imágenes hardened con caché pública, SSRF guard, timeouts de 10s y tope de 10MB)
+- **Edge Functions Desplegadas:** `sync-batch` (sincronización protegida), `image-proxy` (proxy de imágenes hardened), `submit-inquiry` (recepción, validación atómica, outbox e integración Resend en modo de pruebas)
+- **Proveedor de Email:** Resend operativo en staging (modo test estrictamente contenido hacia `loopinnova.admin@gmail.com`)
 - **Repositorio Remoto GitHub:** `https://github.com/alberto591/mobile_marketplace` (rama `main`)
 
 ---
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se ha auditado y estabilizado el catálogo en **Supabase Staging (`lmsjgxhzfksyrlxyqndd`)** (114 piezas reales congeladas de Eurodesguace Málaga) y se ha incorporado el sistema de **Carrito de Recambios Móvil** junto con la solución de resolución de imágenes **Image Proxy** hardened:
+Se ha completado con éxito la activación y prueba real del sistema de **notificaciones comerciales telemáticas mediante Resend** en el entorno de Supabase Staging:
 
-1. **Sistema de Carrito de Recambios y Reglas de Dominio:**
-   - **Invariante de unidad física única:** Cada recambio es una unidad individual procedente de un vehículo donante concreto. Se restringe estrictamente a 1 unidad por oferta física sin permitir incrementos artificiales.
-   - **Prevención de duplicados:** Se impide añadir la misma pieza física dos veces al carrito (`part.id`).
-   - **Estados de disponibilidad respetados:**
-     - `AVAILABLE`: Permite «Añadir al carrito» (o muestra «En el carrito» permitiendo navegar al carrito).
-     - `PENDING_CONFIRMATION`: Mantiene «Consultar disponibilidad» abriendo la consulta individual.
-     - `OUT_OF_STOCK` / `WITHDRAWN`: Deshabilita la acción con estado no disponible.
-   - **Inmutabilidad de catálogo:** Añadir una pieza al carrito local jamás altera su estado de disponibilidad en el backend.
-   - **Persistencia local segura:** El carrito se almacena en el dispositivo mediante `@react-native-async-storage/async-storage` a través de la interfaz `ICartStorage`, sobreviviendo a recargas y reinicios de la app sin almacenar credenciales ni datos sensibles.
-   - **Agrupación visual por CAT:** Las piezas se agrupan por `vendor.id` con subtotales por desguace para facilitar el futuro cálculo de portes por centro.
-   - **Cálculo monetario exacto:** Subtotales calculados en céntimos enteros con `addMoney` y formateados con `formatMoney` (subtotal provisional).
+1. **Prueba Real de Envío Verificada:**
+   - **Petición Aceptada por Resend:** La API de Resend aceptó y procesó el correo de notificación comercial devolviendo el identificador único `01a158b7-b939-7647-ac6e-8472dac1c51b`.
+   - **Registro Outbox:** La tabla `inquiry_notifications` refleja el estado final `SENT` con destinatario `loopinnova.admin@gmail.com`, proveedor `resend` y fecha de entrega.
+   - **Contención en Modo de Pruebas:** El sistema aplica `INQUIRY_EMAIL_TEST_MODE=true`, impidiendo de forma estricta que salgan correos a los desguaces reales mientras el entorno esté en fase de validación técnica.
+   - **Idempotencia Garantizada:** Se comprobó que una segunda petición con la misma clave de idempotencia (`idem-resend-live-20261020-003`) devuelve la referencia existente (`INQ-202610-LXY9`) sin duplicar el envío de correos ni crear filas redundantes en la base de datos.
+   - **Catálogo Inalterado:** Las 114 piezas originales de Eurodesguace Málaga permanecen 100% intactas.
 
-2. **Flujo de Confirmación de Disponibilidad (Honestidad Radical):**
-   - **El stock no está reservado:** Se informa claramente al usuario de que el stock físico no se bloquea al añadir al carrito.
-   - **Ausencia de checkout ficticio:** No se simulan compras con tarjeta ni pedidos confirmados.
-   - **Limitaciones de la API documentadas:** La API del desguace es de solo lectura y de actualización periódica; la solicitud se registra estrictamente de forma local en el dispositivo y no se transmite a servidores del CAT.
-
-3. **Revisión de Honestidad Comercial y Tratamiento Fiscal:**
-   - **Eliminación de afirmaciones sobre IVA:** Al no existir confirmación contractual de que los precios de inventario incluyan IVA ni desglose fiscal completo en la API, se eliminaron las leyendas de «IVA incluido» en todas las pantallas (fichas, tarjetas, modal de consulta, carrito y confirmación), sustituyéndolas por la advertencia prudente: «Precio publicado por el desguace. Impuestos aplicables y gastos de transporte por confirmar».
-   - **Significado estricto de `AVAILABLE`:** Las piezas con dicho estado muestran «Figura disponible en catálogo» y notas de advertencia explícitas indicando que la existencia física real en almacén debe confirmarse con el vendedor.
-   - **Filtro de búsqueda sincero:** El filtro de disponibilidad en resultados se etiqueta como «Disponibles en catálogo» en lugar de «En stock».
-   - **Claridad sobre el guardado local:** La pantalla de confirmación deja constancia de que los datos quedan guardados como borrador local en el dispositivo para facilitar el contacto con el desguace, sin fingir transmisiones a servidores externos.
-
-4. **Resolución Segura de Imágenes (Hardening de Edge Function Image Proxy):**
-   - **Causa raíz diagnosticada:** El certificado SSL wildcard del CDN externo del desguace (`cdn11.metasync.com`) caducó el 19 de octubre de 2026 a las 23:59:59 GMT (`verify error:num=10:certificate has expired`). iOS App Transport Security (ATS) bloquea tajantemente conexiones a certificados caducados en dispositivos físicos.
-   - **Hardening de seguridad implementado (Paso 10):**
-     - **Validación estricta de URLs:** Exclusivamente protocolo HTTPS, rechazo de credenciales (userinfo), puertos no estándar y direcciones IP literales (IPv4/IPv6).
-     - **Lista blanca restringida:** Limitada estrictamente a `cdn11.metasync.com`, `eurodesguacemalaga.com` y `www.eurodesguacemalaga.com`.
-     - **Seguimiento seguro de redirecciones:** `redirect: 'manual'`, límite de 2 saltos re-evaluando cada destino con el validador de seguridad.
-     - **Timeouts:** Timeout explícito de 10 segundos por petición upstream mediante `AbortController`.
-     - **Tope de tamaño de 10MB:** Validación previa de `Content-Length` y corte de lectura en flujo de streaming sin depender exclusivamente del encabezado.
-     - **Validación de tipos MIME:** Se aceptan únicamente `image/jpeg`, `image/jpg`, `image/png`, `image/webp`, `image/avif`. Se rechaza HTML, JSON y ejecutables con HTTP 415.
-     - **Política de caché:** `Cache-Control: public, max-age=2592000, s-maxage=2592000, immutable` exclusivamente para respuestas 200 de imágenes válidas; respuestas de error devuelven `Cache-Control: no-store`.
+2. **Integración de Car Center (VextCentral - Paso 12):**
+   - Documentada en `docs/providers/car-center-vextcentral-api.md`. Se mantiene a la espera de la URL base y contrato oficial del canal de VextCentral para implementar el adaptador sin inventar endpoints ni datos sintéticos.
 
 ---
 
 ## 2. Cobertura de Pruebas Automatizadas
 
-Se ejecutan **113 pruebas automatizadas** pasando al 100% con Vitest:
+Se ejecutan **129 pruebas automatizadas** pasando al 100% con Vitest:
 
 | Módulo / Archivo | Pruebas | Estado | Cobertura |
 |---|---|---|---|
+| `packages/core/test/commercial-inquiries.test.ts` | 14 | Superado | Esquemas de consulta, consentimiento, idempotencia, rate limiting y aislamiento en modo test |
+| `packages/core/test/vextcentral-contract.test.ts` | 2 | Superado | Esquema borrador y validaciones para piezas VextCentral |
 | `packages/core/test/money.test.ts` | 8 | Superado | Centavos enteros, parsing decimal, operaciones seguras |
 | `packages/core/test/oem-normalization.test.ts` | 5 | Superado | Limpieza de caracteres, equivalencias y mayúsculas |
 | `packages/core/test/compatibility-signal.test.ts` | 6 | Superado | OEM oficial vs referencia visual del CAT (no garantizada) |
@@ -78,7 +57,7 @@ Se ejecutan **113 pruebas automatizadas** pasando al 100% con Vitest:
 
 ### 3.1. Comprobación Técnica Previa
 ```bash
-# 1. Comprobar suite completa (85 tests)
+# 1. Comprobar suite completa (124 tests)
 npm test
 
 # 2. Comprobar tipado estricto
@@ -91,11 +70,14 @@ npm run typecheck
 npm run start -w @mobile-marketplace/mobile
 ```
 
-### 3.3. Abrir en Dispositivo
-- **iPhone Físico (Recomendado):** Instalar Expo Go, conectar el iPhone a la misma red Wi-Fi y escanear el código QR con la app Cámara.
-- **Simulador iOS:** Si Xcode completo está instalado, pulsar `i` en la terminal de Metro.
-
 ---
 
-## 4. Guía de Pruebas
-Consultar el protocolo detallado en [docs/manual-testing-guide.md](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/manual-testing-guide.md).
+## 4. Configuración Necesaria para Notificaciones Reales
+
+Para activar el envío telemático de correos a Eurodesguaces Málaga en Staging/Producción, deben configurarse los siguientes secretos en Supabase:
+
+- `RESEND_API_KEY`: Clave de API de Resend vinculada a la cuenta de mensajería.
+- `INQUIRY_FROM_EMAIL`: Remitente de dominio verificado (ej. `consultas@tudominio.com`).
+- `EURODESGUACE_INQUIRY_EMAIL`: Dirección de correo comercial confirmada por Eurodesguace Málaga para recibir solicitudes de compra de piezas.
+
+*(Si no se configuran, el sistema opera en modo seguro `SKIPPED_NOT_CONFIGURED`, registrando todas las consultas en base de datos sin generar errores).*
