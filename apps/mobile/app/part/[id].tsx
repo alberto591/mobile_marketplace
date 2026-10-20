@@ -23,6 +23,7 @@ export default function PartDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PartDetailResult | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [inquiryModalVisible, setInquiryModalVisible] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +95,6 @@ export default function PartDetailScreen() {
 
   const { part, vendor, compatibility } = data;
   const images = part.images;
-  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const currentImage = images[selectedImageIndex] ?? images[0];
 
   const conditionLabels: Record<string, string> = {
