@@ -8,6 +8,7 @@ export interface CatalogServiceFactoryOptions {
   readonly dataSource?: CatalogDataSource;
   readonly backendBaseUrl?: string;
   readonly backendAnonKey?: string;
+  readonly backendTimeoutMs?: number;
   readonly includeMockEurodesguace?: boolean;
 }
 
@@ -28,6 +29,7 @@ export function createCatalogService(options: CatalogServiceFactoryOptions = {})
     return new BackendCatalogService({
       baseUrl: options.backendBaseUrl ?? process.env.EXPO_PUBLIC_SUPABASE_URL,
       anonKey: options.backendAnonKey ?? process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+      timeoutMs: options.backendTimeoutMs,
     });
   }
 

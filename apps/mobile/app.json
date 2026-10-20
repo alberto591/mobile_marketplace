@@ -32,6 +32,13 @@
           "resizeMode": "contain",
           "backgroundColor": "#0F172A"
         }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.marketplace.recambios",
+          "enableGooglePay": false
+        }
       ]
     ]
   }

@@ -28,7 +28,7 @@ function loadLocalEnv() {
   }
 }
 
-describe('Live Backend Catalog & 9 Application Flows (Staging Integration)', { timeout: 15000 }, () => {
+describe('Live Backend Catalog & 9 Application Flows (Staging Integration)', { timeout: 35000 }, () => {
   beforeAll(() => {
     loadLocalEnv();
   });
@@ -43,6 +43,7 @@ describe('Live Backend Catalog & 9 Application Flows (Staging Integration)', { t
       dataSource: 'backend',
       backendBaseUrl: baseUrl,
       backendAnonKey: anonKey,
+      backendTimeoutMs: 25000,
     });
   };
 

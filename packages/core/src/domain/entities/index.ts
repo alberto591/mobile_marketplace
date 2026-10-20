@@ -8,3 +8,4 @@ export * from './inventory-source.js';
 export * from './part.js';
 export * from './product-identity.js';
 export * from './inquiry.js';
+export * from './order.js';

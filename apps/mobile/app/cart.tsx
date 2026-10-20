@@ -58,11 +58,21 @@ export default function CartScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Info Banner */}
         <View style={styles.noticeBanner}>
-          <Text style={styles.noticeTitle}>Selección de piezas en catálogo</Text>
+          <Text style={styles.noticeTitle}>Marketplace transaccional de desguaces</Text>
           <Text style={styles.noticeText}>
-            Cada pieza figura en el catálogo remitido por un CAT autorizado. El carrito es local en este dispositivo y las piezas no quedan reservadas. La disponibilidad física en almacén y los importes finales deben confirmarse con el desguace.
+            Cada Centro Autorizado de Tratamiento (CAT) es el vendedor legal de sus piezas y se encarga del empaquetado y envío directo a tu dirección.
           </Text>
         </View>
+
+        {/* Multi-Vendor Cart Advisory */}
+        {vendorGroups.length > 1 && (
+          <View style={styles.multiVendorBanner}>
+            <Text style={styles.multiVendorTitle}>Aviso: Piezas de múltiples desguaces</Text>
+            <Text style={styles.multiVendorText}>
+              Para este primer lanzamiento, cada pedido tramita las piezas de un único desguace. En el checkout tramitarás primero las del vendedor principal y las restantes permanecerán en tu carrito.
+            </Text>
+          </View>
+        )}
 
         {/* Grouped Items by Scrap Yard */}
         {vendorGroups.map((group) => (
@@ -192,17 +202,28 @@ export default function CartScreen() {
               {itemCount} {itemCount === 1 ? 'pieza seleccionada' : 'piezas seleccionadas'}
             </Text>
             <Text style={styles.subtotalValue}>{formatMoney(subtotal)}</Text>
-            <Text style={styles.subtotalHint}>Precio publicado · Impuestos y portes por confirmar</Text>
+            <Text style={styles.subtotalHint}>Precio de catálogo · Portes e impuestos en checkout</Text>
           </View>
 
-          <Pressable
-            style={styles.continueBtn}
-            onPress={() => router.push('/confirm-availability')}
-            accessibilityRole="button"
-            accessibilityLabel="Continuar hacia confirmación de disponibilidad"
-          >
-            <Text style={styles.continueBtnText}>Confirmar disponibilidad</Text>
-          </Pressable>
+          <View style={styles.actionButtonsCol}>
+            <Pressable
+              style={styles.continueBtn}
+              onPress={() => router.push('/checkout')}
+              accessibilityRole="button"
+              accessibilityLabel="Continuar hacia tramitación y pago del pedido"
+            >
+              <Text style={styles.continueBtnText}>Tramitar pedido</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.inquiryLinkBtn}
+              onPress={() => router.push('/confirm-availability')}
+              accessibilityRole="button"
+              accessibilityLabel="Consultar disponibilidad con el desguace"
+            >
+              <Text style={styles.inquiryLinkText}>Consultar dudas / disponibilidad</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </View>
@@ -434,8 +455,8 @@ const styles = StyleSheet.create({
   },
   continueBtn: {
     backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
     borderRadius: borderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -444,5 +465,36 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
     fontSize: 13,
     fontWeight: '700',
+  },
+  actionButtonsCol: {
+    alignItems: 'flex-end',
+  },
+  inquiryLinkBtn: {
+    marginTop: 6,
+    paddingVertical: 2,
+  },
+  inquiryLinkText: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    textDecorationLine: 'underline',
+  },
+  multiVendorBanner: {
+    backgroundColor: colors.cardSecondary,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.warning,
+  },
+  multiVendorTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  multiVendorText: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    lineHeight: 16,
   },
 });

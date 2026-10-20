@@ -21,6 +21,7 @@ export interface CartContextValue {
   isInCart(partId: string): boolean;
   addItem(part: Part, vendor: Vendor): { success: boolean; reason?: string };
   removeItem(partId: string): void;
+  removeItems(partIds: readonly string[]): void;
   clearCart(): void;
 }
 
@@ -92,6 +93,11 @@ export function CartProvider({ children, storage }: CartProviderProps) {
     setItems((prev) => removeItemFromCart(prev, partId));
   };
 
+  const removeItems = (partIds: readonly string[]) => {
+    const idSet = new Set(partIds);
+    setItems((prev) => Object.freeze(prev.filter((item) => !idSet.has(item.part.id))));
+  };
+
   const clearCart = () => {
     setItems([]);
     cartStorage.removeItem(CART_STORAGE_KEY).catch(() => {});
@@ -109,6 +115,7 @@ export function CartProvider({ children, storage }: CartProviderProps) {
     isInCart,
     addItem,
     removeItem,
+    removeItems,
     clearCart,
   };
 

@@ -1,40 +1,48 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
 - **Fecha de actualización:** 2026-10-20
-- **Fase completada:** Paso 13 — Activación y Verificación Exitosa de Notificaciones Reales por Email en Staging
-- **Estado de pruebas:** 129 pruebas automatizadas pasando al 100% (91 en `@mobile-marketplace/core`, 38 en `@mobile-marketplace/mobile`)
+- **Fase completada:** Checkout V2 — Paso 17: Stripe Test-Mode Preflight
+- **Estado de pruebas:** 146 pruebas automatizadas pasando al 100% (105 en `@mobile-marketplace/core`, 41 en `@mobile-marketplace/mobile`)
 - **Tipado estático:** TypeScript estricto (`tsc --noEmit`) superado con 0 errores en core y mobile
-- **Compilación móvil:** Bundle iOS para Hermes verificado (1166 módulos), configurable en modo `backend` (PostgREST directo a staging) y modo `mock`
+- **Compilación móvil:** Compatible con Expo SDK 57 / React Native 0.86 / `@stripe/stripe-react-native 0.64.0` (21/21 verificaciones de expo-doctor superadas)
 - **Proyecto Supabase Staging:** `lmsjgxhzfksyrlxyqndd` (West Europe - Ireland)
-- **Edge Functions Desplegadas:** `sync-batch` (sincronización protegida), `image-proxy` (proxy de imágenes hardened), `submit-inquiry` (recepción, validación atómica, outbox e integración Resend en modo de pruebas)
-- **Proveedor de Email:** Resend operativo en staging (modo test estrictamente contenido hacia `loopinnova.admin@gmail.com`)
+- **Edge Functions Desplegadas:** `sync-batch`, `image-proxy`, `submit-inquiry`, `create-payment-intent` (bloqueo estricto de livemode, sincronización de readiness de Stripe, cálculo de precios fiable), `stripe-webhook` (verificación HMAC-SHA256, deduplicación, reintentos seguros y reconciliación de subpedidos)
+- **Proveedor de Pagos:** Stripe Connect (modo Test, Direct Charges en cuenta conectada del desguace con retención de 10% de comisión mediante `application_fee_amount`)
 - **Repositorio Remoto GitHub:** `https://github.com/alberto591/mobile_marketplace` (rama `main`)
 
 ---
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se ha completado con éxito la activación y prueba real del sistema de **notificaciones comerciales telemáticas mediante Resend** en el entorno de Supabase Staging:
+Se ha completado la auditoría preflight del **Checkout Transaccional V2 con Stripe Connect** en el entorno de Supabase Staging:
 
-1. **Prueba Real de Envío Verificada:**
-   - **Petición Aceptada por Resend:** La API de Resend aceptó y procesó el correo de notificación comercial devolviendo el identificador único `01a158b7-b939-7647-ac6e-8472dac1c51b`.
-   - **Registro Outbox:** La tabla `inquiry_notifications` refleja el estado final `SENT` con destinatario `loopinnova.admin@gmail.com`, proveedor `resend` y fecha de entrega.
-   - **Contención en Modo de Pruebas:** El sistema aplica `INQUIRY_EMAIL_TEST_MODE=true`, impidiendo de forma estricta que salgan correos a los desguaces reales mientras el entorno esté en fase de validación técnica.
-   - **Idempotencia Garantizada:** Se comprobó que una segunda petición con la misma clave de idempotencia (`idem-resend-live-20261020-003`) devuelve la referencia existente (`INQ-202610-LXY9`) sin duplicar el envío de correos ni crear filas redundantes en la base de datos.
-   - **Catálogo Inalterado:** Las 114 piezas originales de Eurodesguace Málaga permanecen 100% intactas.
+1. **Modelo de Negocio Marketplace Implementado:**
+   - **Vendedor Legal:** Cada desguace (CAT) es el vendedor registrado ante el consumidor.
+   - **Direct Charges:** Los pagos se dirigen a la cuenta conectada del desguace (`acct_...`), reteniendo la plataforma un 10% de comisión (`application_fee_amount`) calculada estrictamente sobre el subtotal de piezas (excluyendo envío e impuestos).
+   - **Restricción de Primer Lanzamiento:** Limitado a un único vendedor por pedido; carritos multiproveedor informan al usuario y procesan las piezas del CAT principal primero.
+   - **Tarifa Fija de Envíos en Staging:** 9,50 EUR (950 céntimos).
+   - **Tratamiento Fiscal:** Marcado explícitamente como `UNCONFIGURED` (0,00 EUR en pruebas; advertencia visible en UI y backend de que no constituye oferta comercial vinculante).
+   - **Bloqueo Servidor de Modo Real:** La Edge Function `create-payment-intent` rechaza terminantemente claves `sk_live_`, `rk_live_` y `pk_live_` con código 403 mientras los tributos permanezcan sin configurar.
 
-2. **Integración de Car Center (VextCentral - Paso 12):**
+2. **Base de Datos y Seguridad (Migración `20261021000000_checkout_orders_and_stripe.sql`):**
+   - Tablas creadas: `orders` (pedido padre), `order_suborders` (subpedido por vendedor), `order_items` (instantánea inmutable de piezas), `stripe_webhook_events` (deduplicación por `stripe_event_id`), `order_refunds`.
+   - Modificación en `vendors`: metadatos de Stripe Connect (`stripe_account_id`, `stripe_charges_enabled`, `stripe_payouts_enabled`, etc.).
+   - RLS estricto: mutaciones restringidas exclusivamente a `service_role`. Lectura segura de pedidos mediante RPC con `access_token` no predecible (protege el guest checkout).
+   - Inalterabilidad del catálogo: las 114 piezas de Eurodesguace Málaga se mantienen intactas (`content-range: 0-0/114`).
+
+3. **Integración de Car Center (VextCentral - Paso 12):**
    - Documentada en `docs/providers/car-center-vextcentral-api.md`. Se mantiene a la espera de la URL base y contrato oficial del canal de VextCentral para implementar el adaptador sin inventar endpoints ni datos sintéticos.
 
 ---
 
 ## 2. Cobertura de Pruebas Automatizadas
 
-Se ejecutan **129 pruebas automatizadas** pasando al 100% con Vitest:
+Se ejecutan **146 pruebas automatizadas** pasando al 100% con Vitest:
 
 | Módulo / Archivo | Pruebas | Estado | Cobertura |
 |---|---|---|---|
-| `packages/core/test/commercial-inquiries.test.ts` | 14 | Superado | Esquemas de consulta, consentimiento, idempotencia, rate limiting y aislamiento en modo test |
+| `packages/core/test/transactional-checkout.test.ts` | 10 | Superado | Precios confiables, desglose de comisiones 10%, tarifas fijas 9,50 EUR, esquemas Zod de checkout y dirección |
+| `packages/core/test/commercial-inquiries.test.ts` | 18 | Superado | Esquemas de consulta, consentimiento, idempotencia, rate limiting y aislamiento en modo test |
 | `packages/core/test/vextcentral-contract.test.ts` | 2 | Superado | Esquema borrador y validaciones para piezas VextCentral |
 | `packages/core/test/money.test.ts` | 8 | Superado | Centavos enteros, parsing decimal, operaciones seguras |
 | `packages/core/test/oem-normalization.test.ts` | 5 | Superado | Limpieza de caracteres, equivalencias y mayúsculas |
@@ -46,6 +54,7 @@ Se ejecutan **129 pruebas automatizadas** pasando al 100% con Vitest:
 | `packages/core/test/eurodesguace-sync-engine.test.ts` | 6 | Superado | Idempotencia, cursor, bajas lógicas, límite estricto de 50 piezas en servidor |
 | `packages/core/test/sync-edge-function-security.test.ts` | 5 | Superado | Autorización de sync-batch (401), token inválido, clamp a 50 piezas en servidor |
 | `packages/core/test/image-proxy-security.test.ts` | 18 | Superado | Hardening de image-proxy: SSRF, lista blanca, userinfo, redirecciones, timeouts 10s, tope 10MB, MIME y fallback seguro |
+| `apps/mobile/test/checkout-service.test.ts` | 3 | Superado | Servicio cliente de checkout: creación de PaymentIntent, consulta de pedido por token RPC y manejo de errores tipados |
 | `apps/mobile/test/catalog-service.test.ts` | 12 | Superado | Agregación multi-proveedor, filtrado por Eurodesguace Málaga, referencias visuales |
 | `apps/mobile/test/backend-catalog-service.test.ts` | 9 | Superado | Consulta PostgREST, headers anon, filtros, OEM vs visual, getPartById, Fail Fast, factoría, enrutamiento seguro de imágenes a image-proxy |
 | `apps/mobile/test/live-backend-integration.test.ts` | 8 | Superado | 11 flujos de usuario contra Supabase Staging en vivo con inventario real |
