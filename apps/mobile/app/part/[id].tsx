@@ -21,6 +21,7 @@ import { borderRadius, colors, spacing, typography } from '../../theme/index';
 
 export default function PartDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { isInCart, addItem } = useCart();
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PartDetailResult | null>(null);
@@ -107,7 +108,6 @@ export default function PartDetailScreen() {
     UNKNOWN: 'Estado no catalogado por el desguace',
   };
 
-  const { isInCart, addItem } = useCart();
   const inCart = isInCart(part.id);
   const status = part.availability.status;
   const isAvailable = status === 'AVAILABLE' && part.availability.stockQuantity > 0;
