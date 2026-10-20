@@ -57,6 +57,7 @@ function createMockPart(params: {
       externalPartId: `ext-${params.id}`,
       rawPayloadHash: 'hash-123',
       sourceType: 'API_SCRAPYARD',
+      lastSeenAt: new Date('2026-10-20'),
     },
     title: params.title,
     categoryId: 'MOTOR_CALEFACCION',

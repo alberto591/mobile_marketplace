@@ -90,7 +90,17 @@ export class BackendCatalogError extends Error {
   }
 }
 
-export function mapRowToPart(row: PublicCatalogPartRow): Part {
+export function sanitizeImageUrl(url: string, supabaseBaseUrl?: string): string {
+  if (!url) return url;
+  const baseUrl = supabaseBaseUrl ?? process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (url.includes('metasync.com') && baseUrl) {
+    const cleanBase = baseUrl.replace(/\/+$/, '');
+    return `${cleanBase}/functions/v1/image-proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
+export function mapRowToPart(row: PublicCatalogPartRow, supabaseBaseUrl?: string): Part {
   return Object.freeze({
     id: row.id,
     vendorId: row.vendor_id,
@@ -138,7 +148,7 @@ export function mapRowToPart(row: PublicCatalogPartRow): Part {
     images: (row.images ?? []).map((img) =>
       Object.freeze({
         id: img.id,
-        url: img.url,
+        url: sanitizeImageUrl(img.url, supabaseBaseUrl),
         sortOrder: img.sortOrder,
         isPrimary: img.isPrimary,
       })
@@ -274,7 +284,7 @@ export class BackendCatalogService implements ICatalogService {
           : undefined;
 
       for (const row of rows) {
-        const part = mapRowToPart(row);
+        const part = mapRowToPart(row, this.baseUrl);
         const vendor = mapRowToVendor(row);
 
         // Filter by OEM reference if requested
@@ -369,7 +379,7 @@ export class BackendCatalogService implements ICatalogService {
       }
 
       const row = rows[0];
-      const part = mapRowToPart(row);
+      const part = mapRowToPart(row, this.baseUrl);
       const vendor = mapRowToVendor(row);
 
       const target =

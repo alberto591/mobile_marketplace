@@ -1,18 +1,19 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
 - **Fecha de actualización:** 2026-10-20
-- **Fase completada:** Fase 2 — Mejora del MVP: Carrito de Recambios y Confirmación de Disponibilidad Asistida
-- **Estado de pruebas:** 94 pruebas automatizadas pasando al 100% (57 en `@mobile-marketplace/core`, 37 en `@mobile-marketplace/mobile`)
+- **Fase completada:** Fase 2 — Mejora del MVP: Carrito de Recambios y Edge Function Image Proxy con Caché
+- **Estado de pruebas:** 95 pruebas automatizadas pasando al 100% (57 en `@mobile-marketplace/core`, 38 en `@mobile-marketplace/mobile`)
 - **Tipado estático:** TypeScript estricto (`tsc --noEmit`) superado con 0 errores en core y mobile
 - **Compilación móvil:** Bundle iOS para Hermes verificado (1166 módulos, 2.7MB), configurable en modo `backend` (PostgREST directo a staging) y modo `mock`
 - **Proyecto Supabase Staging:** `lmsjgxhzfksyrlxyqndd` (West Europe - Ireland)
+- **Edge Functions Desplegadas:** `sync-batch` (sincronización protegida), `image-proxy` (proxy de imágenes con caché pública para certificados expirados de CATs)
 - **Repositorio Remoto GitHub:** `https://github.com/alberto591/mobile_marketplace` (rama `main`)
 
 ---
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se ha auditado y estabilizado el catálogo en **Supabase Staging (`lmsjgxhzfksyrlxyqndd`)** (114 piezas reales congeladas de Eurodesguace Málaga) y se ha incorporado el sistema de **Carrito de Recambios Móvil**:
+Se ha auditado y estabilizado el catálogo en **Supabase Staging (`lmsjgxhzfksyrlxyqndd`)** (114 piezas reales congeladas de Eurodesguace Málaga) y se ha incorporado el sistema de **Carrito de Recambios Móvil** junto con la solución de resolución de imágenes **Image Proxy**:
 
 1. **Sistema de Carrito de Recambios y Reglas de Dominio:**
    - **Invariante de unidad física única:** Cada recambio es una unidad individual procedente de un vehículo donante concreto. Se restringe estrictamente a 1 unidad por oferta física sin permitir incrementos artificiales.
@@ -31,15 +32,21 @@ Se ha auditado y estabilizado el catálogo en **Supabase Staging (`lmsjgxhzfksyr
    - **Ausencia de checkout ficticio:** No se simulan compras con tarjeta ni pedidos confirmados.
    - **Limitaciones de la API documentadas:** La API del desguace es de solo lectura; la solicitud se registra localmente en el dispositivo y se explican los bloqueos técnicos reales.
 
-3. **Diagnóstico del CDN de Imágenes Externo:**
-   - Se ha documentado que el certificado SSL del CDN de Eurodesguace Málaga (`cdn11.metasync.com`) caducó el 19 de octubre de 2026 a las 23:59:59 GMT (`verify error:num=10:certificate has expired`).
-   - React Native y los componentes `PartCard` y `PartDetailScreen` disponen de manejo `onError` con fallback visual elegante `[Fotografía no disponible]`.
+3. **Resolución de Imágenes Externas (Edge Function Image Proxy):**
+   - **Causa raíz diagnosticada:** El certificado SSL wildcard del CDN externo del desguace (`cdn11.metasync.com`) caducó el 19 de octubre de 2026 a las 23:59:59 GMT (`verify error:num=10:certificate has expired`). iOS App Transport Security (ATS) bloquea tajantemente conexiones a certificados caducados en dispositivos físicos.
+   - **Solución arquitectónica desplegada (Opción A):**
+     - Despliegue de la Edge Function `image-proxy` en Supabase Staging (`lmsjgxhzfksyrlxyqndd`).
+     - Coste: 0 EUR/mes (incluido en la cuota gratuita de Supabase Edge Functions).
+     - Preservación de base de datos: 0 mutaciones en las 114 piezas congeladas en la base de datos de staging.
+     - Caché inmutable: `Cache-Control: public, max-age=2592000, s-maxage=2592000, immutable`.
+     - Puente de transporte: Enrutamiento seguro y retransmisión con encabezados CORS y validación de tipos MIME (`image/jpeg`, etc.).
+     - Integración transparente en `BackendCatalogService.sanitizeImageUrl`: Transforma URLs de `metasync.com` al proxy del proyecto Supabase de forma nativa.
 
 ---
 
 ## 2. Cobertura de Pruebas Automatizadas
 
-Se ejecutan **94 pruebas automatizadas** pasando al 100% con Vitest:
+Se ejecutan **95 pruebas automatizadas** pasando al 100% con Vitest:
 
 | Módulo / Archivo | Pruebas | Estado | Cobertura |
 |---|---|---|---|
@@ -53,7 +60,7 @@ Se ejecutan **94 pruebas automatizadas** pasando al 100% con Vitest:
 | `packages/core/test/eurodesguace-sync-engine.test.ts` | 6 | Superado | Idempotencia, cursor, bajas lógicas, límite estricto de 50 piezas en servidor |
 | `packages/core/test/sync-edge-function-security.test.ts` | 5 | Superado | Autorización de sync-batch (401), token inválido, clamp a 50 piezas en servidor |
 | `apps/mobile/test/catalog-service.test.ts` | 12 | Superado | Agregación multi-proveedor, filtrado por Eurodesguace Málaga, referencias visuales |
-| `apps/mobile/test/backend-catalog-service.test.ts` | 8 | Superado | Consulta PostgREST, headers anon, filtros, OEM vs visual, getPartById, Fail Fast, factoría |
+| `apps/mobile/test/backend-catalog-service.test.ts` | 9 | Superado | Consulta PostgREST, headers anon, filtros, OEM vs visual, getPartById, Fail Fast, factoría, enrutamiento seguro de imágenes a image-proxy |
 | `apps/mobile/test/live-backend-integration.test.ts` | 8 | Superado | 11 flujos de usuario contra Supabase Staging en vivo con inventario real |
 | `apps/mobile/test/cart-service.test.ts` | 9 | Superado | Carrito, invariantes de cantidad 1, no duplicados, agrupación por desguace, persistencia, céntimos enteros |
 

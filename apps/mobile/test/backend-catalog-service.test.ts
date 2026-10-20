@@ -3,6 +3,7 @@ import type { PublicCatalogPartRow } from '../services/backend-catalog.service';
 import {
   BackendCatalogError,
   BackendCatalogService,
+  sanitizeImageUrl,
 } from '../services/backend-catalog.service';
 import { createCatalogService } from '../services/catalog-service.factory';
 import { MockCatalogService } from '../services/mock-catalog.service';
@@ -304,5 +305,17 @@ describe('BackendCatalogService', () => {
     expect(item.compatibility.isGuaranteed).toBe(false);
     expect(item.compatibility.confidence).toBe('ATTRIBUTES_MATCH');
     expect(item.compatibility.evidenceSummary).toContain('referencia visual del desguace');
+  });
+
+  it('enruta URLs de CDN con certificado caducado (metasync.com) a través del Edge Function image-proxy', () => {
+    const rawCdnUrl = 'https://cdn11.metasync.com/photo123.jpg';
+    const proxied = sanitizeImageUrl(rawCdnUrl, 'https://lmsjgxhzfksyrlxyqndd.supabase.co');
+    expect(proxied).toBe(
+      'https://lmsjgxhzfksyrlxyqndd.supabase.co/functions/v1/image-proxy?url=https%3A%2F%2Fcdn11.metasync.com%2Fphoto123.jpg'
+    );
+
+    // Las URLs de otros dominios se conservan intactas
+    const standardUrl = 'https://images.eurodesguacemalaga.com/test.jpg';
+    expect(sanitizeImageUrl(standardUrl, 'https://lmsjgxhzfksyrlxyqndd.supabase.co')).toBe(standardUrl);
   });
 });
