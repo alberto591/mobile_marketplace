@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatMoney, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
 import type { SearchResultItem } from '../services/catalog-service.interface';
@@ -14,6 +14,7 @@ export function PartCard({ item }: Props) {
   const { part, vendor, compatibility } = item;
   const primaryImg = getPrimaryImage(part);
   const primaryOEM = getPrimaryOEMReference(part);
+  const [imageError, setImageError] = useState(false);
 
   const conditionLabels: Record<string, string> = {
     EXCELLENT: 'Excelente estado',
@@ -41,17 +42,20 @@ export function PartCard({ item }: Props) {
     >
       {/* Top Banner: Image & Quick Badges */}
       <View style={styles.imageContainer}>
-        {primaryImg ? (
+        {primaryImg && !imageError ? (
           <Image
             source={{ uri: primaryImg.url }}
             style={styles.image}
             resizeMode="cover"
             accessibilityLabel={part.title}
+            onError={() => setImageError(true)}
           />
         ) : (
           <View style={styles.imagePlaceholder}>
             <Text style={styles.placeholderIcon}>[Sin Foto]</Text>
-            <Text style={styles.placeholderSub}>Foto pendiente de carga</Text>
+            <Text style={styles.placeholderSub}>
+              {imageError ? 'Fotografía no disponible' : 'Foto pendiente de carga'}
+            </Text>
           </View>
         )}
 

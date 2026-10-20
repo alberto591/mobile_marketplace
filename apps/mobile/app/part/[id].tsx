@@ -94,6 +94,7 @@ export default function PartDetailScreen() {
 
   const { part, vendor, compatibility } = data;
   const images = part.images;
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const currentImage = images[selectedImageIndex] ?? images[0];
 
   const conditionLabels: Record<string, string> = {
@@ -111,17 +112,20 @@ export default function PartDetailScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Photo Gallery */}
         <View style={styles.galleryContainer}>
-          {currentImage ? (
+          {currentImage && !failedImages.has(currentImage.id) ? (
             <Image
               source={{ uri: currentImage.url }}
               style={styles.mainImage}
               resizeMode="cover"
+              onError={() => {
+                setFailedImages((prev) => new Set(prev).add(currentImage.id));
+              }}
             />
           ) : (
             <View style={styles.mainImagePlaceholder}>
-              <Text style={styles.noPhotoText}>[Sin Fotografías Disponibles]</Text>
+              <Text style={styles.noPhotoText}>[Fotografía no disponible]</Text>
               <Text style={styles.noPhotoSub}>
-                El desguace no ha subido imágenes para esta referencia
+                No se pudo cargar la imagen del desguace
               </Text>
             </View>
           )}
