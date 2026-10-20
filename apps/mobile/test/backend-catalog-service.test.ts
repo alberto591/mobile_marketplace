@@ -266,4 +266,43 @@ describe('BackendCatalogService', () => {
     });
     expect(backendService).toBeInstanceOf(BackendCatalogService);
   });
+
+  it('correctly maps REFERENCIA_VISUAL from PostgREST rows and preserves isGuaranteed=false', async () => {
+    const visualRow: PublicCatalogPartRow = {
+      ...sampleRow1,
+      id: 'visual-test-part-123',
+      oem_references: [
+        {
+          raw: '5073401000013',
+          normalized: '5073401000013',
+          isPrimary: true,
+          referenceType: 'REFERENCIA_VISUAL',
+        },
+      ],
+    };
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [visualRow],
+    });
+
+    const service = new BackendCatalogService({
+      baseUrl: 'https://test.supabase.co',
+      anonKey: 'test-key',
+      fetchFn: fetchMock as any,
+    });
+
+    const result = await service.search({
+      query: 'MANDO',
+      oemReference: '5073401000013',
+    });
+
+    expect(result.items).toHaveLength(1);
+    const item = result.items[0];
+    expect(item.part.oemReferences[0].referenceType).toBe('REFERENCIA_VISUAL');
+    expect(item.compatibility.isGuaranteed).toBe(false);
+    expect(item.compatibility.confidence).toBe('ATTRIBUTES_MATCH');
+    expect(item.compatibility.evidenceSummary).toContain('referencia visual del desguace');
+  });
 });

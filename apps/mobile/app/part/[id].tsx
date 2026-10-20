@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,7 +14,7 @@ import { CompatibilityBadge } from '../../components/CompatibilityBadge';
 import { EmptyState } from '../../components/EmptyState';
 import { InquiryModal } from '../../components/InquiryModal';
 import type { PartDetailResult } from '../../services/catalog-service.interface';
-import { catalogService } from '../../services/mock-catalog.service';
+import { catalogService } from '../../services/catalog-service.factory';
 import { borderRadius, colors, spacing, typography } from '../../theme/index';
 
 export default function PartDetailScreen() {
@@ -25,16 +25,23 @@ export default function PartDetailScreen() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [inquiryModalVisible, setInquiryModalVisible] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     let isMounted = true;
 
     async function loadPart() {
       if (!id) return;
       setLoading(true);
+      setError(null);
       try {
         const res = await catalogService.getPartById(id);
         if (isMounted) {
           setData(res);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setError(err?.message || 'Error al conectar con el catálogo');
         }
       } finally {
         if (isMounted) {
@@ -55,6 +62,21 @@ export default function PartDetailScreen() {
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.accent} />
         <Text style={styles.loadingText}>Cargando ficha del recambio...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <EmptyState
+          title="Fallo de conexión"
+          message={`No se pudo cargar la información de la pieza: ${error}. Por honestidad en el inventario, no se muestran datos ficticios.`}
+          actionLabel="Reintentar"
+          onAction={() => router.replace({ pathname: '/part/[id]', params: { id } })}
+          secondaryActionLabel="Volver"
+          onSecondaryAction={() => router.back()}
+        />
       </View>
     );
   }
@@ -160,30 +182,64 @@ export default function PartDetailScreen() {
             <CompatibilityBadge signal={compatibility} showDetails />
           </View>
 
-          {/* OEM References Section */}
+          {/* References Section */}
           <View style={styles.sectionCard}>
             <Text style={styles.sectionHeading}>Referencias de la pieza</Text>
             {part.oemReferences.length > 0 ? (
-              part.oemReferences.map((ref, idx) => (
-                <View key={idx} style={styles.oemRow}>
-                  <Text style={styles.oemBadge}>
-                    {ref.brandName === 'REFERENCIA_VISUAL'
-                      ? 'Ref. Visual Proveedor'
-                      : ref.isPrimary
-                      ? 'Principal'
-                      : 'Equivalente'}
-                  </Text>
-                  <Text style={styles.oemCode}>{ref.raw}</Text>
-                  <Text style={styles.oemNorm}>
-                    {ref.brandName === 'REFERENCIA_VISUAL'
-                      ? '(No garantizada OEM oficial)'
-                      : `(Norm: ${ref.normalized})`}
-                  </Text>
-                </View>
-              ))
+              part.oemReferences.map((ref, idx) => {
+                const isVisual =
+                  ref.referenceType === 'REFERENCIA_VISUAL' ||
+                  ref.brandName === 'REFERENCIA_VISUAL';
+                const isCatalog =
+                  ref.referenceType === 'CATALOGO_PROVEEDOR' ||
+                  ref.brandName === 'CATALOGO_PROVEEDOR';
+                const isCross =
+                  ref.referenceType === 'CROSS_REFERENCE' ||
+                  ref.brandName === 'CROSS_REFERENCE';
+
+                let badgeLabel = 'OEM Oficial';
+                let helperText = `(Norm: ${ref.normalized})`;
+                let badgeStyle = styles.officialOemBadge;
+                let textStyle = styles.officialOemText;
+
+                if (isVisual) {
+                  badgeLabel = 'Referencia visual del proveedor';
+                  helperText = '(Lectura de etiqueta/troquelado · No verificada como OEM oficial)';
+                  badgeStyle = styles.visualBadge;
+                  textStyle = styles.visualText;
+                } else if (isCatalog) {
+                  badgeLabel = 'Referencia interna de catálogo';
+                  helperText = `(Código de inventario del CAT: ${ref.normalized})`;
+                  badgeStyle = styles.catalogBadge;
+                  textStyle = styles.catalogText;
+                } else if (isCross) {
+                  badgeLabel = 'Referencia cruzada / Equivalencia';
+                  helperText = `(Cruce de recambio: ${ref.normalized})`;
+                  badgeStyle = styles.crossBadge;
+                  textStyle = styles.crossText;
+                } else if (ref.isPrimary) {
+                  badgeLabel = 'Referencia OEM oficial (Principal)';
+                  helperText = `(OEM verificado: ${ref.normalized})`;
+                } else {
+                  badgeLabel = 'Referencia OEM oficial (Equivalente)';
+                  helperText = `(OEM alternativo: ${ref.normalized})`;
+                }
+
+                return (
+                  <View key={idx} style={styles.oemItemBlock}>
+                    <View style={styles.oemRow}>
+                      <View style={[styles.oemBadgeContainer, badgeStyle]}>
+                        <Text style={[styles.oemBadgeText, textStyle]}>{badgeLabel}</Text>
+                      </View>
+                      <Text style={styles.oemCode}>{ref.raw}</Text>
+                    </View>
+                    <Text style={styles.oemNorm}>{helperText}</Text>
+                  </View>
+                );
+              })
             ) : (
               <Text style={styles.emptyFieldText}>
-                No se especificó referencia OEM en el inventario del vendedor.
+                No se especificó ninguna referencia en el inventario del vendedor.
               </Text>
             )}
           </View>
@@ -483,30 +539,66 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: spacing.sm,
   },
+  oemItemBlock: {
+    marginBottom: spacing.sm,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardSecondary,
+  },
   oemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 2,
   },
-  oemBadge: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    backgroundColor: colors.cardSecondary,
-    paddingHorizontal: 6,
+  oemBadgeContainer: {
+    paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: borderRadius.sm,
-    marginRight: spacing.sm,
+    borderWidth: 1,
+  },
+  oemBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  visualBadge: {
+    backgroundColor: colors.warningBg,
+    borderColor: colors.warningBorder,
+  },
+  visualText: {
+    color: colors.warning,
+  },
+  officialOemBadge: {
+    backgroundColor: colors.verifiedBg,
+    borderColor: colors.verifiedBorder,
+  },
+  officialOemText: {
+    color: colors.verified,
+  },
+  catalogBadge: {
+    backgroundColor: colors.neutralBg,
+    borderColor: colors.neutralBorder,
+  },
+  catalogText: {
+    color: colors.neutralStatus,
+  },
+  crossBadge: {
+    backgroundColor: colors.neutralBg,
+    borderColor: colors.accent,
+  },
+  crossText: {
+    color: colors.accent,
   },
   oemCode: {
     fontSize: 13,
     fontWeight: '700',
-    color: colors.accent,
-    marginRight: 6,
+    color: colors.textPrimary,
   },
   oemNorm: {
     fontSize: 11,
-    color: colors.textMuted,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   emptyFieldText: {
     fontSize: 12,

@@ -109,4 +109,33 @@ describe('Compatibility Evaluation Engine', () => {
     expect(signal.isGuaranteed).toBe(false);
     expect(signal.confidenceScore).toBe(0.0);
   });
+
+  it('strictly downgrades REFERENCIA_VISUAL match to ATTRIBUTES_MATCH with isGuaranteed=FALSE', () => {
+    const visualRef = createOEMReference({
+      raw: '5073401000013',
+      isPrimary: true,
+      referenceType: 'REFERENCIA_VISUAL',
+      brandName: 'REFERENCIA_VISUAL',
+    });
+
+    const signal = evaluateCompatibility({
+      partOemReferences: [visualRef],
+      partDonorVehicle: {
+        make: 'CITROEN',
+        model: 'NEMO',
+      },
+      targetOEMReference: '5073401000013',
+      targetVehicle: {
+        make: 'CITROEN',
+        model: 'NEMO',
+      },
+    });
+
+    expect(signal.confidence).toBe('ATTRIBUTES_MATCH');
+    expect(signal.isGuaranteed).toBe(false); // CRITICAL: visual ref NEVER guarantees official compatibility
+    expect(signal.confidenceScore).toBe(0.5);
+    expect(signal.evidenceSummary).toContain('referencia visual del desguace');
+    expect(signal.evidenceSummary).toContain('no garantizada como OEM oficial');
+    expect(signal.userAdvice).toContain('etiqueta del CAT');
+  });
 });

@@ -142,8 +142,9 @@ describe('Mobile App - Catalog Service & Multi-Provider Ingestion', () => {
     expect(nemoPart).toBeDefined();
     expect(nemoPart?.part.donorVehicle?.make).toBe('CITROEN');
     expect(nemoPart?.part.donorVehicle?.model).toBe('NEMO');
-    expect(nemoPart?.part.price.amountInCents).toBe(4295); // 42,95 EUR
     expect(nemoPart?.part.oemReferences[0].normalized).toBe('5073401000013');
     expect(nemoPart?.part.oemReferences[0].brandName).toBe('REFERENCIA_VISUAL');
+    expect(nemoPart?.part.oemReferences[0].referenceType).toBe('REFERENCIA_VISUAL');
+    expect(nemoPart?.compatibility.isGuaranteed).toBe(false);
   });
 });

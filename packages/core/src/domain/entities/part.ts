@@ -47,9 +47,31 @@ export interface Part {
 
 /**
  * Returns primary OEM reference if defined, or first available reference.
+ * Prioritizes official OEM references over supplier visual labels.
  */
 export function getPrimaryOEMReference(part: Part): OEMReference | undefined {
+  const isVisual = (r: OEMReference) =>
+    r.referenceType === 'REFERENCIA_VISUAL' || r.brandName === 'REFERENCIA_VISUAL';
+
+  // 1. Primary official OEM reference
+  const primaryOfficial = part.oemReferences.find((r) => r.isPrimary && !isVisual(r));
+  if (primaryOfficial) return primaryOfficial;
+
+  // 2. Any official OEM reference
+  const anyOfficial = part.oemReferences.find((r) => !isVisual(r));
+  if (anyOfficial) return anyOfficial;
+
+  // 3. Fallback to primary visual / first available reference
   return part.oemReferences.find((r) => r.isPrimary) ?? part.oemReferences[0];
+}
+
+/**
+ * Checks whether the part contains at least one verified official OEM reference.
+ */
+export function hasOfficialOEMReference(part: Part): boolean {
+  return part.oemReferences.some(
+    (r) => r.referenceType !== 'REFERENCIA_VISUAL' && r.brandName !== 'REFERENCIA_VISUAL'
+  );
 }
 
 /**

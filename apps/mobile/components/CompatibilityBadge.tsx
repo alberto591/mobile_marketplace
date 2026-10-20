@@ -26,7 +26,11 @@ export function CompatibilityBadge({ signal, showDetails = false }: Props) {
   } else if (signal.confidence === 'ATTRIBUTES_MATCH') {
     badgeStyle = styles.warningBadge;
     textStyle = styles.warningText;
-    label = 'Coche donante similar · No garantizado';
+    if (signal.matchedOEM) {
+      label = 'Ref. visual coincide · No garantizada OEM';
+    } else {
+      label = 'Coche donante similar · No garantizado';
+    }
   } else if (signal.confidence === 'CATALOG_VERIFIED') {
     badgeStyle = styles.verifiedBadge;
     textStyle = styles.verifiedText;

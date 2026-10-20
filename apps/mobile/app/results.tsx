@@ -14,7 +14,7 @@ import type {
   CatalogSearchResult,
   SortOrderOption,
 } from '../services/catalog-service.interface';
-import { catalogService } from '../services/mock-catalog.service';
+import { catalogService } from '../services/catalog-service.factory';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 
 export default function ResultsScreen() {
@@ -27,6 +27,7 @@ export default function ResultsScreen() {
   }>();
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<CatalogSearchResult | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<string | undefined>(undefined);
   const [onlyAvailable, setOnlyAvailable] = useState<boolean>(false);
@@ -37,6 +38,7 @@ export default function ResultsScreen() {
 
     async function fetchResults() {
       setLoading(true);
+      setError(null);
       try {
         const res = await catalogService.search({
           query: params.query,
@@ -51,6 +53,10 @@ export default function ResultsScreen() {
 
         if (isMounted) {
           setResults(res);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setError(err?.message || 'Error de conexión con el catálogo de desguaces');
         }
       } finally {
         if (isMounted) {
@@ -195,7 +201,18 @@ export default function ResultsScreen() {
       )}
 
       {/* Results List */}
-      {loading ? (
+      {error ? (
+        <View style={styles.emptyContainer}>
+          <EmptyState
+            title="Fallo de conexión con el catálogo"
+            message={`No se pudo conectar con el catálogo en vivo: ${error}. Por honestidad en el inventario, no se muestran recambios ficticios.`}
+            actionLabel="Reintentar búsqueda"
+            onAction={() => router.replace({ pathname: '/results', params })}
+            secondaryActionLabel="Volver al buscador"
+            onSecondaryAction={() => router.back()}
+          />
+        </View>
+      ) : loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Buscando en catálogo de desguaces...</Text>

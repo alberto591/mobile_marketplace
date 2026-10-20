@@ -76,10 +76,15 @@ export function PartCard({ item }: Props) {
           {part.title}
         </Text>
 
-        {/* OEM Reference */}
+        {/* OEM or Visual Reference */}
         {primaryOEM ? (
           <View style={styles.metaRow}>
-            <Text style={styles.metaLabel}>OEM:</Text>
+            <Text style={styles.metaLabel}>
+              {primaryOEM.referenceType === 'REFERENCIA_VISUAL' ||
+              primaryOEM.brandName === 'REFERENCIA_VISUAL'
+                ? 'Ref. Visual:'
+                : 'OEM:'}
+            </Text>
             <Text style={styles.oemText}>{primaryOEM.raw}</Text>
           </View>
         ) : (
