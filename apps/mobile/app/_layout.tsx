@@ -37,7 +37,7 @@ export default function RootLayout() {
             <Stack.Screen
               name="index"
               options={{
-                title: 'Recambios de Desguace',
+                title: 'Buscapiezas 24h',
                 headerBackTitle: 'Inicio',
               }}
             />

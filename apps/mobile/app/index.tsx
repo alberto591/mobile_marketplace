@@ -81,9 +81,9 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {/* Hero Header */}
         <View style={styles.heroSection}>
-          <Text style={styles.heroTitle}>Buscador de Recambios Usados</Text>
+          <Text style={styles.heroTitle}>Buscapiezas 24h</Text>
           <Text style={styles.heroSubtitle}>
-            Compara piezas originales de desguaces profesionales (CAT) en España con fotos reales y garantía legal.
+            Dinos qué pieza necesitas y te decimos quién la tiene. Presupuesto en menos de 24 h y envío a toda España con garantía legal.
           </Text>
         </View>
 

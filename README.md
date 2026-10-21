@@ -1,6 +1,6 @@
-# Marketplace de Recambios de Desguace
+# Buscapiezas 24h — Marketplace de Recambios de Desguace
 
-Plataforma movil y agregador de catalogo de recambios usados procedentes de Centros Autorizados de Tratamiento de Vehiculos (CAT / desguaces profesionales) en Espana.
+Plataforma móvil y agregador de catálogo de recambios usados procedentes de Centros Autorizados de Tratamiento de Vehículos (CAT / desguaces profesionales) en España.
 
 El objetivo del producto es proporcionar una experiencia de busqueda, verificacion de compatibilidad y compra de piezas usadas rapida, transparente y fiable, comparable a la facilidad de uso de plataformas como AUTODOC pero adaptada a las singularidades de piezas unicas y despieces.
 

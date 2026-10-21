@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Marketplace Recambios",
+    "name": "Buscapiezas 24h",
     "slug": "mobile-marketplace",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,7 +14,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#0F172A"
+        "backgroundColor": "#0B0C0F"
       },
       "package": "com.marketplace.recambios"
     },
@@ -30,7 +30,7 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0F172A"
+          "backgroundColor": "#0B0C0F"
         }
       ],
       [

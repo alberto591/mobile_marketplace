@@ -1,15 +1,18 @@
 /**
- * Theme & Design System for Mobile Marketplace (Recambios de Desguace).
+ * Theme & Design System for Buscapiezas 24h (Recambios de Desguace).
  * Tailored for clarity, high contrast, automotive trust, and one-handed mobile ergonomics.
  */
 
 export const colors = {
-  // Brand & Accent
-  primary: '#0F172A',      // Deep slate / navy
-  primaryLight: '#1E293B',
-  accent: '#2563EB',       // Automotive Royal Blue
-  accentHover: '#1D4ED8',
-  accentSubtle: '#EFF6FF',
+  // Brand & Accent (Buscapiezas 24h: Racing Red & Midnight Obsidian)
+  primary: '#0B0C0F',      // Deep Obsidian Midnight (website --bg)
+  primaryLight: '#14161C', // Elevated Dark Surface (website --bg3)
+  accent: '#CA0202',       // Signature Racing Red (website --acc / --rojo)
+  accentHover: '#E31B1B',  // Vivid Red (website --acc2)
+  accentSubtle: '#FDF2F2', // Soft red tint for badges and highlights
+
+  // Direct Communication (WhatsApp)
+  whatsapp: '#25D366',     // WhatsApp Green (website --wa)
 
   // Status & Badges
   verified: '#059669',     // Emerald (Verified OEM / Guaranteed)
@@ -24,7 +27,7 @@ export const colors = {
   neutralBg: '#F1F5F9',
   neutralBorder: '#CBD5E1',
 
-  danger: '#DC2626',       // Red (Out of stock / Sold)
+  danger: '#CA0202',       // Red (Out of stock / Sold / Error)
   dangerBg: '#FEF2F2',
   dangerBorder: '#FECACA',
 
@@ -32,14 +35,14 @@ export const colors = {
   background: '#F8FAFC',
   card: '#FFFFFF',
   cardSecondary: '#F1F5F9',
-  border: '#E2E8F0',
+  border: '#E3E2DE',       // Refined border matching website --line
   borderStrong: '#CBD5E1',
 
   // Text
-  textPrimary: '#0F172A',
-  textSecondary: '#475569',
-  textMuted: '#94A3B8',
-  textInverse: '#FFFFFF',
+  textPrimary: '#0B0C0F',   // Pure dark ink (website --bg)
+  textSecondary: '#525866', // Balanced neutral text
+  textMuted: '#8B93A1',     // Muted labels (website --mut)
+  textInverse: '#FFFFFF',   // High-contrast white on dark surfaces (website --tx)
 };
 
 export const spacing = {
