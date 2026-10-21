@@ -19,4 +19,19 @@ config.resolver.nodeModulesPaths = [
 // 3. Prevent duplicate react/react-native package resolution
 config.resolver.disableHierarchicalLookup = false;
 
+// 4. Provide web shim for native-only stripe module
+const defaultResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (platform === 'web' && moduleName === '@stripe/stripe-react-native') {
+    return {
+      filePath: path.resolve(__dirname, 'services/stripe-web-shim.tsx'),
+      type: 'sourceFile',
+    };
+  }
+  if (defaultResolveRequest) {
+    return defaultResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 module.exports = config;

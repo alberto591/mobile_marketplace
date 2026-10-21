@@ -2,9 +2,11 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StripeProvider } from '@stripe/stripe-react-native';
-import { CartHeaderButton } from '../components/CartHeaderButton';
+import { StripeProvider } from '../services/stripe-client';
+import { HeaderNavActions } from '../components/HeaderNavActions';
 import { CartProvider } from '../services/cart-context';
+import { FavouritesProvider } from '../services/favourites-context';
+import { GarageProvider } from '../services/garage-context';
 import { colors } from '../theme/index';
 
 export default function RootLayout() {
@@ -17,23 +19,25 @@ export default function RootLayout() {
         merchantIdentifier="merchant.com.marketplace.recambios"
       >
         <CartProvider>
-          <StatusBar style="light" />
-          <Stack
-            screenOptions={{
-              headerStyle: {
-                backgroundColor: colors.primary,
-              },
-              headerTintColor: colors.textInverse,
-              headerTitleStyle: {
-                fontWeight: '700',
-                fontSize: 17,
-              },
-              headerRight: () => <CartHeaderButton />,
-              contentStyle: {
-                backgroundColor: colors.background,
-              },
-            }}
-          >
+          <FavouritesProvider>
+            <GarageProvider>
+              <StatusBar style="light" />
+              <Stack
+              screenOptions={{
+                headerStyle: {
+                  backgroundColor: colors.primary,
+                },
+                headerTintColor: colors.textInverse,
+                headerTitleStyle: {
+                  fontWeight: '700',
+                  fontSize: 17,
+                },
+                headerRight: () => <HeaderNavActions />,
+                contentStyle: {
+                  backgroundColor: colors.background,
+                },
+              }}
+            >
             <Stack.Screen
               name="index"
               options={{
@@ -80,6 +84,14 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="saved"
+              options={{
+                title: 'Piezas guardadas',
+                headerBackTitle: 'Atrás',
+                headerRight: () => <HeaderNavActions hideSaved />,
+              }}
+            />
+            <Stack.Screen
               name="confirm-availability"
               options={{
                 title: 'Confirmar disponibilidad',
@@ -88,8 +100,10 @@ export default function RootLayout() {
               }}
             />
           </Stack>
-        </CartProvider>
-      </StripeProvider>
-    </SafeAreaProvider>
-  );
+        </GarageProvider>
+      </FavouritesProvider>
+    </CartProvider>
+    </StripeProvider>
+  </SafeAreaProvider>
+);
 }

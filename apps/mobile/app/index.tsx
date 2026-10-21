@@ -11,9 +11,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
+import { GarageSelectorCard } from '../components/GarageSelectorCard';
+import { VisualCategoryGrid } from '../components/VisualCategoryGrid';
+import { useFavourites } from '../services/favourites-context';
+import { useGarage } from '../services/garage-context';
 
 export default function HomeScreen() {
+  const { savedCount } = useFavourites();
+  const { selectedVehicle } = useGarage();
   const [query, setQuery] = useState('');
   const [oemReference, setOemReference] = useState('');
   const [vehicleMake, setVehicleMake] = useState('');
@@ -29,14 +36,19 @@ export default function HomeScreen() {
   ];
 
   const handleSearch = () => {
+    const finalMake = vehicleMake.trim() || selectedVehicle?.make;
+    const finalModel = vehicleModel.trim() || selectedVehicle?.model;
+    const finalYear =
+      vehicleYear.trim() || (selectedVehicle?.year ? String(selectedVehicle.year) : undefined);
+
     if (
       !query.trim() &&
       !oemReference.trim() &&
-      (!vehicleMake.trim() || !vehicleModel.trim())
+      (!finalMake || !finalModel)
     ) {
       Alert.alert(
         'Introduce un criterio',
-        'Por favor, escribe el nombre de la pieza, una referencia OEM o la marca y modelo de tu coche.'
+        'Por favor, escribe el nombre de la pieza, una referencia OEM o selecciona tu vehículo en Mi Garaje.'
       );
       return;
     }
@@ -46,9 +58,9 @@ export default function HomeScreen() {
       params: {
         query: query.trim() || undefined,
         oemReference: oemReference.trim() || undefined,
-        vehicleMake: vehicleMake.trim() || undefined,
-        vehicleModel: vehicleModel.trim() || undefined,
-        vehicleYear: vehicleYear.trim() || undefined,
+        vehicleMake: finalMake || undefined,
+        vehicleModel: finalModel || undefined,
+        vehicleYear: finalYear || undefined,
       },
     });
   };
@@ -86,6 +98,29 @@ export default function HomeScreen() {
             Dinos qué pieza necesitas y te decimos quién la tiene. Presupuesto en menos de 24 h y envío a toda España con garantía legal.
           </Text>
         </View>
+
+        {savedCount > 0 && (
+          <Pressable
+            style={({ pressed }) => [styles.savedBanner, pressed && styles.savedBannerPressed]}
+            onPress={() => router.push('/saved')}
+            accessibilityRole="button"
+            accessibilityLabel={`Tienes ${savedCount} piezas guardadas. Pulsa para verlas`}
+          >
+            <View style={styles.savedBannerLeft}>
+              <Ionicons name="heart" size={18} color={colors.accent} />
+              <Text style={styles.savedBannerText}>
+                Tienes {savedCount} {savedCount === 1 ? 'pieza guardada' : 'piezas guardadas'}
+              </Text>
+            </View>
+            <View style={styles.savedBannerRight}>
+              <Text style={styles.savedBannerAction}>Ver guardados</Text>
+              <Ionicons name="chevron-forward" size={14} color={colors.accent} />
+            </View>
+          </Pressable>
+        )}
+
+        {/* Mi Garaje - Vehicle Selector */}
+        <GarageSelectorCard />
 
         {/* Main Search Card */}
         <View style={styles.searchCard}>
@@ -160,12 +195,15 @@ export default function HomeScreen() {
             <Text style={styles.searchButtonText}>Buscar recambios disponibles</Text>
           </Pressable>
 
-          {(query || oemReference || vehicleMake || vehicleModel || vehicleYear) && (
+          {Boolean(query || oemReference || vehicleMake || vehicleModel || vehicleYear) && (
             <Pressable style={styles.clearButton} onPress={handleClear}>
               <Text style={styles.clearButtonText}>Limpiar campos</Text>
             </Pressable>
           )}
         </View>
+
+        {/* Visual Category Grid */}
+        <VisualCategoryGrid />
 
         {/* Quick Searches */}
         <View style={styles.quickSection}>
@@ -241,6 +279,42 @@ const styles = StyleSheet.create({
     ...typography.bodySecondary,
     color: colors.textSecondary,
     lineHeight: 20,
+  },
+  savedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    marginBottom: spacing.lg,
+  },
+  savedBannerPressed: {
+    opacity: 0.85,
+    backgroundColor: colors.cardSecondary,
+  },
+  savedBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  savedBannerText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  savedBannerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  savedBannerAction: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.accent,
   },
   searchCard: {
     backgroundColor: colors.card,

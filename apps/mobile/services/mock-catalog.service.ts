@@ -15,12 +15,15 @@ import {
   normalizeOEMReference,
 } from '@mobile-marketplace/core';
 import type {
+  AvailableVehicleMake,
   CatalogSearchResult,
+  CategoryGroupSummary,
   ICatalogService,
   PartDetailResult,
   SearchFilters,
   SearchResultItem,
 } from './catalog-service.interface';
+import { CANONICAL_CATEGORY_GROUPS } from './category-groups.config';
 import { BackendCatalogService } from './backend-catalog.service';
 
 export interface MockCatalogServiceOptions {
@@ -143,14 +146,69 @@ export class MockCatalogService implements ICatalogService {
     return Array.from(this.vendors.values());
   }
 
-  async getPopularCategories(): Promise<readonly { readonly id: string; readonly label: string; readonly count: number }[]> {
-    return [
-      { id: 'ILUMINACION_FARO_IZQ', label: 'Faros Delanteros', count: 42 },
-      { id: 'ELECTRICIDAD_ALTERNADOR', label: 'Alternadores', count: 35 },
-      { id: 'CARROCERIA_RETROVISOR_DCH', label: 'Retrovisores', count: 28 },
-      { id: 'REFRIGERACION_RADIADOR', label: 'Radiadores Motor', count: 19 },
-      { id: 'BRAKES_CALIPER_FR', label: 'Pinzas de Freno', count: 16 },
-    ];
+  async getCategoryGroups(): Promise<readonly CategoryGroupSummary[]> {
+    const { parts } = await this.loadAllParts();
+    const countsMap = new Map<string, number>();
+    for (const p of parts) {
+      countsMap.set(p.categoryId, (countsMap.get(p.categoryId) ?? 0) + 1);
+    }
+
+    const groups: CategoryGroupSummary[] = [];
+    for (const g of CANONICAL_CATEGORY_GROUPS) {
+      let groupCount = 0;
+      for (const catId of g.categoryIds) {
+        groupCount += countsMap.get(catId) ?? 0;
+      }
+      if (groupCount > 0) {
+        groups.push({
+          id: g.id,
+          label: g.label,
+          subtitle: g.subtitle,
+          iconName: g.iconName,
+          categoryIds: g.categoryIds,
+          count: groupCount,
+        });
+      }
+    }
+    return Object.freeze(groups);
+  }
+
+  async getPopularCategories(): Promise<
+    readonly { readonly id: string; readonly label: string; readonly count: number }[]
+  > {
+    const groups = await this.getCategoryGroups();
+    return groups.map((g) => ({
+      id: g.id,
+      label: g.label,
+      count: g.count,
+    }));
+  }
+
+  async getAvailableVehicles(): Promise<readonly AvailableVehicleMake[]> {
+    const { parts } = await this.loadAllParts();
+    const makeMap = new Map<string, Set<string>>();
+
+    for (const p of parts) {
+      if (p.donorVehicle?.make) {
+        const make = p.donorVehicle.make.trim().toUpperCase();
+        if (!makeMap.has(make)) {
+          makeMap.set(make, new Set());
+        }
+        if (p.donorVehicle.model) {
+          makeMap.get(make)!.add(p.donorVehicle.model.trim());
+        }
+      }
+    }
+
+    const result: AvailableVehicleMake[] = [];
+    for (const [make, modelsSet] of makeMap.entries()) {
+      result.push({
+        make,
+        models: Array.from(modelsSet).sort((a, b) => a.localeCompare(b, 'es')),
+      });
+    }
+
+    return Object.freeze(result.sort((a, b) => a.make.localeCompare(b.make, 'es')));
   }
 
   private cachedParts: Part[] | null = null;
@@ -268,6 +326,13 @@ export class MockCatalogService implements ICatalogService {
       // 1. Vendor Filter
       if (filters.vendorId && part.vendorId !== filters.vendorId) {
         continue;
+      }
+
+      // 1b. Category Filter
+      if (filters.categoryIds && filters.categoryIds.length > 0) {
+        if (!filters.categoryIds.includes(part.categoryId)) {
+          continue;
+        }
       }
 
       // 2. Availability Filter

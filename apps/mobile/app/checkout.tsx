@@ -12,7 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { initStripe, useStripe } from '@stripe/stripe-react-native';
+import { initStripe, useStripe } from '../services/stripe-client';
 import { formatMoney } from '@mobile-marketplace/core';
 import { useCart } from '../services/cart-context';
 import { checkoutService } from '../services/checkout.service';
@@ -390,7 +390,7 @@ export default function CheckoutScreen() {
         </View>
 
         {/* Error Banner */}
-        {errorMessage && (
+        {Boolean(errorMessage) && (
           <View style={styles.errorBanner}>
             <Text style={styles.errorText}>{errorMessage}</Text>
           </View>

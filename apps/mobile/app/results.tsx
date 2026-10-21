@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { EmptyState } from '../components/EmptyState';
 import { PartCard } from '../components/PartCard';
 import type {
@@ -15,6 +16,7 @@ import type {
   SortOrderOption,
 } from '../services/catalog-service.interface';
 import { catalogService } from '../services/catalog-service.factory';
+import { useGarage } from '../services/garage-context';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 
 export default function ResultsScreen() {
@@ -24,7 +26,27 @@ export default function ResultsScreen() {
     vehicleMake?: string;
     vehicleModel?: string;
     vehicleYear?: string;
+    categoryIds?: string;
+    categoryLabel?: string;
+    fromCategoryGrid?: string;
   }>();
+
+  const { selectedVehicle } = useGarage();
+  const [vehicleFilterIgnored, setVehicleFilterIgnored] = useState(
+    params.fromCategoryGrid === 'true'
+  );
+
+  const activeVehicleMake = vehicleFilterIgnored
+    ? undefined
+    : params.vehicleMake || selectedVehicle?.make;
+  const activeVehicleModel = vehicleFilterIgnored
+    ? undefined
+    : params.vehicleModel || selectedVehicle?.model;
+  const activeVehicleYear = vehicleFilterIgnored
+    ? undefined
+    : params.vehicleYear
+    ? Number.parseInt(params.vehicleYear, 10)
+    : selectedVehicle?.year;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,9 +66,10 @@ export default function ResultsScreen() {
         const res = await catalogService.search({
           query: params.query,
           oemReference: params.oemReference,
-          vehicleMake: params.vehicleMake,
-          vehicleModel: params.vehicleModel,
-          vehicleYear: params.vehicleYear ? Number.parseInt(params.vehicleYear, 10) : undefined,
+          vehicleMake: activeVehicleMake,
+          vehicleModel: activeVehicleModel,
+          vehicleYear: activeVehicleYear,
+          categoryIds: params.categoryIds ? params.categoryIds.split(',') : undefined,
           vendorId: selectedVendor,
           onlyAvailable,
           sortBy,
@@ -84,19 +107,21 @@ export default function ResultsScreen() {
   }, [
     params.query,
     params.oemReference,
-    params.vehicleMake,
-    params.vehicleModel,
-    params.vehicleYear,
+    activeVehicleMake,
+    activeVehicleModel,
+    activeVehicleYear,
+    params.categoryIds,
     selectedVendor,
     onlyAvailable,
     sortBy,
   ]);
 
   const searchSummaryParts = [
+    params.categoryLabel ? `Categoría: ${params.categoryLabel}` : null,
     params.query ? `"${params.query}"` : null,
     params.oemReference ? `OEM: ${params.oemReference}` : null,
-    params.vehicleMake && params.vehicleModel
-      ? `${params.vehicleMake} ${params.vehicleModel}`
+    activeVehicleMake && activeVehicleModel
+      ? `${activeVehicleMake} ${activeVehicleModel}`
       : null,
   ].filter(Boolean);
 
@@ -119,6 +144,32 @@ export default function ResultsScreen() {
 
         {/* Filter Pills */}
         <View style={styles.pillsRow}>
+          {Boolean(activeVehicleMake && activeVehicleModel) && (
+            <Pressable
+              style={[styles.filterPill, styles.filterPillActive]}
+              onPress={() => setVehicleFilterIgnored(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Filtro por vehículo ${activeVehicleMake} ${activeVehicleModel}. Pulsa para quitar filtro`}
+            >
+              <Text style={[styles.filterPillText, styles.filterPillTextActive]}>
+                Vehículo: {activeVehicleMake} {activeVehicleModel} [X]
+              </Text>
+            </Pressable>
+          )}
+
+          {vehicleFilterIgnored && Boolean(selectedVehicle) && (
+            <Pressable
+              style={styles.filterPill}
+              onPress={() => setVehicleFilterIgnored(false)}
+              accessibilityRole="button"
+              accessibilityLabel={`Reaplicar filtro de tu vehículo ${selectedVehicle?.make}`}
+            >
+              <Text style={styles.filterPillText}>
+                + Filtrar por mi {selectedVehicle?.make}
+              </Text>
+            </Pressable>
+          )}
+
           {/* Vendor Filter */}
           <Pressable
             style={[styles.filterPill, !selectedVendor && styles.filterPillActive]}
@@ -198,6 +249,16 @@ export default function ResultsScreen() {
         </View>
       )}
 
+      {/* Free Process: Donor Vehicle Guidance Notice */}
+      {Boolean(activeVehicleMake && activeVehicleModel) && (
+        <View style={styles.donorNoticeBox}>
+          <Ionicons name="information-circle-outline" size={16} color={colors.primary} style={{ marginRight: 6 }} />
+          <Text style={styles.donorNoticeText}>
+            Filtro por vehículo donante ({activeVehicleMake} {activeVehicleModel}): piezas desmontadas de este modelo. Revisa la referencia física OEM o consulta al desguace por WhatsApp para confirmar compatibilidad exacta con tu bastidor.
+          </Text>
+        </View>
+      )}
+
       {/* Results List */}
       {error ? (
         <View style={styles.emptyContainer}>
@@ -226,14 +287,32 @@ export default function ResultsScreen() {
         <View style={styles.emptyContainer}>
           <EmptyState
             title="No se encontraron piezas"
-            message={`No hay recambios disponibles que coincidan con ${searchSummary}. Puedes probar a buscar solo por la referencia OEM o cambiar los filtros.`}
-            actionLabel="Modificar búsqueda"
-            onAction={() => router.back()}
-            secondaryActionLabel="Restablecer filtros"
+            message={
+              activeVehicleMake && activeVehicleModel
+                ? `No hay recambios disponibles para tu ${activeVehicleMake} ${activeVehicleModel} en ${params.categoryLabel ?? 'esta búsqueda'}. Puedes quitar el filtro de vehículo para ver todos los recambios disponibles del catálogo.`
+                : `No hay recambios disponibles que coincidan con ${searchSummary}. Puedes probar a buscar solo por la referencia OEM o cambiar los filtros.`
+            }
+            actionLabel={
+              activeVehicleMake && activeVehicleModel
+                ? 'Ver todas las piezas sin filtro de vehículo'
+                : 'Modificar búsqueda'
+            }
+            onAction={() => {
+              if (activeVehicleMake && activeVehicleModel) {
+                setVehicleFilterIgnored(true);
+              } else {
+                router.back();
+              }
+            }}
+            secondaryActionLabel={activeVehicleMake && activeVehicleModel ? 'Modificar búsqueda' : 'Restablecer filtros'}
             onSecondaryAction={() => {
-              setSelectedVendor(undefined);
-              setOnlyAvailable(false);
-              setSortBy('relevance');
+              if (activeVehicleMake && activeVehicleModel) {
+                router.back();
+              } else {
+                setSelectedVendor(undefined);
+                setOnlyAvailable(false);
+                setSortBy('relevance');
+              }
             }}
           />
         </View>
@@ -339,6 +418,21 @@ const styles = StyleSheet.create({
   providerErrorText: {
     fontSize: 11,
     color: colors.warning,
+    lineHeight: 15,
+  },
+  donorNoticeBox: {
+    backgroundColor: colors.cardSecondary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  donorNoticeText: {
+    flex: 1,
+    fontSize: 11,
+    color: colors.textSecondary,
     lineHeight: 15,
   },
   listContent: {

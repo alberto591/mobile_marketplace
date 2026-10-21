@@ -10,24 +10,39 @@ import {
   Text,
   View,
 } from 'react-native';
-import { formatMoney } from '@mobile-marketplace/core';
+import { Ionicons } from '@expo/vector-icons';
+import { formatMoney, getPrimaryOEMReference } from '@mobile-marketplace/core';
+import { CatTrustModal } from '../../components/CatTrustModal';
 import { CompatibilityBadge } from '../../components/CompatibilityBadge';
 import { EmptyState } from '../../components/EmptyState';
 import { InquiryModal } from '../../components/InquiryModal';
+import { SavingsAndCircularCard } from '../../components/SavingsAndCircularCard';
+import {
+  estimateAdemeEnvironmentalImpact,
+  findCuratedComparableNewPrice,
+} from '../../services/savings-comparison.service';
 import { useCart } from '../../services/cart-context';
 import type { PartDetailResult } from '../../services/catalog-service.interface';
 import { catalogService } from '../../services/catalog-service.factory';
+import { useFavourites } from '../../services/favourites-context';
+import { useGarage } from '../../services/garage-context';
+import { evaluateSellerTrust } from '../../services/seller-trust.service';
+import { sharePartNative } from '../../services/share-part.service';
+import { openWhatsAppContact } from '../../services/whatsapp-contact.service';
 import { borderRadius, colors, spacing, typography } from '../../theme/index';
 
 export default function PartDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { isInCart, addItem } = useCart();
+  const { isSaved, toggleSaved } = useFavourites();
+  const { selectedVehicle } = useGarage();
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PartDetailResult | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [inquiryModalVisible, setInquiryModalVisible] = useState(false);
+  const [catModalVisible, setCatModalVisible] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +54,16 @@ export default function PartDetailScreen() {
       setLoading(true);
       setError(null);
       try {
-        const res = await catalogService.getPartById(id);
+        const res = await catalogService.getPartById(
+          id,
+          selectedVehicle
+            ? {
+                make: selectedVehicle.make,
+                model: selectedVehicle.model,
+                year: selectedVehicle.year,
+              }
+            : undefined
+        );
         if (isMounted) {
           setData(res);
         }
@@ -59,7 +83,7 @@ export default function PartDetailScreen() {
     return () => {
       isMounted = false;
     };
-  }, [id]);
+  }, [id, selectedVehicle]);
 
   if (loading) {
     return (
@@ -97,6 +121,7 @@ export default function PartDetailScreen() {
   }
 
   const { part, vendor, compatibility } = data;
+  const trust = evaluateSellerTrust(vendor);
   const images = part.images;
   const currentImage = images[selectedImageIndex] ?? images[0];
 
@@ -131,6 +156,56 @@ export default function PartDetailScreen() {
       setInquiryModalVisible(true);
       return;
     }
+  };
+
+  const handleWhatsAppPress = async () => {
+    if (!data?.part || !data?.vendor) return;
+
+    const primaryRef = data.part.oemReferences.find((r) => r.isPrimary) ?? data.part.oemReferences[0];
+
+    await openWhatsAppContact({
+      publicPhone: data.vendor.contact?.publicPhone,
+      partTitle: data.part.title,
+      priceFormatted: formatMoney(data.part.price),
+      listingId: data.part.source.externalPartId || data.part.id.substring(0, 8),
+      vendorTradeName: data.vendor.tradeName,
+      primaryReference: primaryRef
+        ? {
+            raw: primaryRef.raw,
+            isOem: primaryRef.referenceType === 'OEM_OFFICIAL',
+            referenceType: primaryRef.referenceType,
+          }
+        : undefined,
+      onUnavailable: (phone) => {
+        Alert.alert(
+          'WhatsApp no disponible',
+          phone
+            ? `No se pudo iniciar WhatsApp. Puedes contactar directamente al centro en el teléfono: ${phone}`
+            : 'Este desguace no dispone de número de WhatsApp verificado. Puedes tramitar tu consulta a través del botón de consulta en la app.'
+        );
+      },
+    });
+  };
+
+  const handleSharePress = async () => {
+    if (!data?.part || !data?.vendor) return;
+
+    const primaryRef = data.part.oemReferences.find((r) => r.isPrimary) ?? data.part.oemReferences[0];
+
+    await sharePartNative({
+      partId: data.part.id,
+      externalPartId: data.part.source.externalPartId,
+      partTitle: data.part.title,
+      priceFormatted: formatMoney(data.part.price),
+      vendorTradeName: data.vendor.tradeName,
+      primaryReference: primaryRef
+        ? {
+            raw: primaryRef.raw,
+            isOem: primaryRef.referenceType === 'OEM_OFFICIAL',
+            referenceType: primaryRef.referenceType,
+          }
+        : undefined,
+    });
   };
 
   return (
@@ -178,7 +253,30 @@ export default function PartDetailScreen() {
         {/* Content Sheet */}
         <View style={styles.sheet}>
           {/* Header & Price */}
-          <Text style={styles.title}>{part.title}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>{part.title}</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.detailFavBtn,
+                isSaved(part.id) && styles.detailFavBtnActive,
+                pressed && styles.detailFavBtnPressed,
+              ]}
+              onPress={() => toggleSaved(part.id)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isSaved(part.id)
+                  ? 'Quitar de piezas guardadas'
+                  : 'Guardar esta pieza en favoritos'
+              }
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={isSaved(part.id) ? 'heart' : 'heart-outline'}
+                size={22}
+                color={isSaved(part.id) ? colors.accent : colors.textSecondary}
+              />
+            </Pressable>
+          </View>
           <View style={styles.priceRow}>
             <View>
               <Text style={styles.price}>{formatMoney(part.price)}</Text>
@@ -209,6 +307,17 @@ export default function PartDetailScreen() {
             <Text style={styles.sectionHeading}>Verificación de compatibilidad</Text>
             <CompatibilityBadge signal={compatibility} showDetails />
           </View>
+
+          {/* Savings & Circular Economy Section */}
+          <SavingsAndCircularCard
+            usedPriceCents={part.price.amountInCents}
+            comparableNewPrice={findCuratedComparableNewPrice({
+              partId: part.id,
+              oemReference: getPrimaryOEMReference(part)?.normalized,
+              title: part.title,
+            })}
+            environmentalImpact={estimateAdemeEnvironmentalImpact(part.categoryId, part.title)}
+          />
 
           {/* References Section */}
           <View style={styles.sectionCard}>
@@ -284,42 +393,42 @@ export default function PartDetailScreen() {
                   </Text>
                 </View>
 
-                {part.donorVehicle.generation && (
+                {Boolean(part.donorVehicle.generation) && (
                   <View style={styles.specRow}>
                     <Text style={styles.specKey}>Generación / Versión</Text>
                     <Text style={styles.specVal}>{part.donorVehicle.generation}</Text>
                   </View>
                 )}
 
-                {part.donorVehicle.yearFrom && (
+                {Boolean(part.donorVehicle.yearFrom) && (
                   <View style={styles.specRow}>
                     <Text style={styles.specKey}>Año de fabricación</Text>
                     <Text style={styles.specVal}>{part.donorVehicle.yearFrom}</Text>
                   </View>
                 )}
 
-                {part.donorVehicle.engineCode && (
+                {Boolean(part.donorVehicle.engineCode) && (
                   <View style={styles.specRow}>
                     <Text style={styles.specKey}>Código de motor</Text>
                     <Text style={styles.specVal}>{part.donorVehicle.engineCode}</Text>
                   </View>
                 )}
 
-                {part.donorVehicle.fuel && (
+                {Boolean(part.donorVehicle.fuel) && (
                   <View style={styles.specRow}>
                     <Text style={styles.specKey}>Combustible</Text>
                     <Text style={styles.specVal}>{part.donorVehicle.fuel}</Text>
                   </View>
                 )}
 
-                {part.donorVehicle.donorVehicleCode && (
+                {Boolean(part.donorVehicle.donorVehicleCode) && (
                   <View style={styles.specRow}>
                     <Text style={styles.specKey}>Código vehículo donante</Text>
                     <Text style={styles.specVal}>{part.donorVehicle.donorVehicleCode}</Text>
                   </View>
                 )}
 
-                {part.donorVehicle.donorVinMasked && (
+                {Boolean(part.donorVehicle.donorVinMasked) && (
                   <View style={styles.specRow}>
                     <Text style={styles.specKey}>Bastidor anonimizado</Text>
                     <Text style={styles.specVal}>{part.donorVehicle.donorVinMasked}</Text>
@@ -350,7 +459,7 @@ export default function PartDetailScreen() {
                   : 'Sin prueba funcional'}
               </Text>
             </View>
-            {part.description && (
+            {Boolean(part.description) && (
               <View style={styles.descriptionBox}>
                 <Text style={styles.specKey}>Observaciones del desguace:</Text>
                 <Text style={styles.descriptionText}>{part.description}</Text>
@@ -360,13 +469,42 @@ export default function PartDetailScreen() {
 
           {/* Seller / CAT Details */}
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionHeading}>Desguace vendedor (Centro CAT)</Text>
-            <Text style={styles.vendorLegalName}>{vendor.legalName}</Text>
-            <Text style={styles.vendorTradeName}>Comercial: {vendor.tradeName}</Text>
+            <View style={styles.sellerHeaderRow}>
+              <Text style={styles.sectionHeading}>Desguace vendedor (Centro CAT)</Text>
+              <Pressable
+                style={[
+                  styles.catStatusBadge,
+                  trust.isCatVerified ? styles.catBadgeVerified : styles.catBadgeUnverified,
+                ]}
+                onPress={() => setCatModalVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Ver información legal y garantías del vendedor"
+              >
+                <Ionicons
+                  name={trust.isCatVerified ? 'shield-checkmark' : 'alert-circle-outline'}
+                  size={13}
+                  color={trust.isCatVerified ? colors.verified : colors.warning}
+                  style={{ marginRight: 4 }}
+                />
+                <Text
+                  style={[
+                    styles.catBadgeText,
+                    trust.isCatVerified
+                      ? styles.catBadgeTextVerified
+                      : styles.catBadgeTextUnverified,
+                  ]}
+                >
+                  {trust.badgeLabel}
+                </Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.vendorLegalName}>{trust.legalSellerName}</Text>
+            <Text style={styles.vendorTradeName}>Comercial: {trust.tradeName}</Text>
 
             <View style={styles.vendorMetaRow}>
               <Text style={styles.vendorMetaLabel}>Autorización ambiental:</Text>
-              <Text style={styles.vendorMetaValue}>{vendor.catAuthorizationCode}</Text>
+              <Text style={styles.vendorMetaValue}>{trust.catAuthorizationCode}</Text>
             </View>
 
             <View style={styles.vendorMetaRow}>
@@ -379,16 +517,64 @@ export default function PartDetailScreen() {
             <View style={styles.vendorMetaRow}>
               <Text style={styles.vendorMetaLabel}>Garantía legal:</Text>
               <Text style={styles.vendorMetaValue}>
-                {vendor.policies.warrantyMonths} meses (RD 265/2021)
+                {trust.warrantyMonths} meses mínimos (RDLeg 1/2007)
               </Text>
             </View>
 
             <View style={styles.vendorMetaRow}>
               <Text style={styles.vendorMetaLabel}>Plazo de desistimiento:</Text>
               <Text style={styles.vendorMetaValue}>
-                {vendor.policies.returnDays} días naturales para devoluciones
+                {trust.returnDays} días naturales (Venta a distancia)
               </Text>
             </View>
+
+            <Pressable
+              style={styles.legalInfoLink}
+              onPress={() => setCatModalVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Consultar información legal y política de garantías del vendedor"
+            >
+              <Text style={styles.legalInfoLinkText}>
+                Consultar política de garantías, devoluciones y acreditación CAT
+              </Text>
+              <Ionicons name="chevron-forward" size={13} color={colors.accent} />
+            </Pressable>
+
+            {/* WhatsApp Contact Action */}
+            {vendor.contact?.publicPhone ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.whatsappButton,
+                  pressed && styles.whatsappButtonPressed,
+                ]}
+                onPress={handleWhatsAppPress}
+                accessibilityRole="button"
+                accessibilityLabel={`Preguntar por WhatsApp a ${vendor.tradeName}`}
+              >
+                <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.whatsappButtonText}>Preguntar por WhatsApp</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.noWhatsappInfo}>
+                <Text style={styles.noWhatsappText}>
+                  Contacto telefónico directo no publicado por este desguace.
+                </Text>
+              </View>
+            )}
+
+            {/* Share Action */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.shareButton,
+                pressed && styles.shareButtonPressed,
+              ]}
+              onPress={handleSharePress}
+              accessibilityRole="button"
+              accessibilityLabel="Compartir esta pieza con mi mecánico o cliente"
+            >
+              <Ionicons name="share-social-outline" size={18} color={colors.accent} style={{ marginRight: 8 }} />
+              <Text style={styles.shareButtonText}>Compartir con mi mecánico</Text>
+            </Pressable>
 
             <Text style={styles.syncNotice}>
               Última sincronización de catálogo:{' '}
@@ -461,6 +647,13 @@ export default function PartDetailScreen() {
         part={part}
         vendor={vendor}
         onClose={() => setInquiryModalVisible(false)}
+      />
+
+      {/* Seller Legal & CAT Trust Modal */}
+      <CatTrustModal
+        visible={catModalVisible}
+        vendor={vendor}
+        onClose={() => setCatModalVisible(false)}
       />
     </View>
   );
@@ -537,10 +730,33 @@ const styles = StyleSheet.create({
   sheet: {
     padding: spacing.lg,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginBottom: spacing.xs,
+  },
   title: {
     ...typography.titleLarge,
     color: colors.textPrimary,
-    marginBottom: spacing.xs,
+    flex: 1,
+  },
+  detailFavBtn: {
+    padding: 8,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.cardSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailFavBtnActive: {
+    backgroundColor: 'rgba(234, 88, 12, 0.1)',
+    borderColor: colors.accent,
+  },
+  detailFavBtnPressed: {
+    backgroundColor: colors.card,
   },
   priceRow: {
     flexDirection: 'row',
@@ -693,6 +909,57 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 2,
   },
+  sellerHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  catStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+  },
+  catBadgeVerified: {
+    backgroundColor: colors.verifiedBg,
+    borderColor: colors.verifiedBorder,
+  },
+  catBadgeUnverified: {
+    backgroundColor: colors.warningBg,
+    borderColor: colors.warningBorder,
+  },
+  catBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  catBadgeTextVerified: {
+    color: colors.verified,
+  },
+  catBadgeTextUnverified: {
+    color: colors.warning,
+  },
+  legalInfoLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: colors.cardSecondary,
+    borderRadius: borderRadius.sm,
+    marginTop: spacing.xs,
+  },
+  legalInfoLinkText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.accent,
+    flex: 1,
+    marginRight: 6,
+  },
   vendorLegalName: {
     fontSize: 14,
     fontWeight: '700',
@@ -800,5 +1067,56 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: 3,
     textAlign: 'center',
+  },
+  whatsappButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.whatsapp,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  whatsappButtonPressed: {
+    opacity: 0.85,
+  },
+  whatsappButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  noWhatsappInfo: {
+    marginTop: spacing.sm,
+    padding: spacing.sm,
+    backgroundColor: colors.cardSecondary,
+    borderRadius: borderRadius.sm,
+  },
+  noWhatsappText: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 1.5,
+    borderColor: colors.accent,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  shareButtonPressed: {
+    backgroundColor: colors.cardSecondary,
+  },
+  shareButtonText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

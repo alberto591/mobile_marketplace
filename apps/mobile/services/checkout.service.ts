@@ -129,7 +129,7 @@ export class CheckoutService implements ICheckoutService {
       process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
       '';
     this.timeoutMs = options.timeoutMs ?? 20000;
-    this.fetchFn = options.fetchFn ?? fetch;
+    this.fetchFn = options.fetchFn ?? ((input, init) => fetch(input, init));
   }
 
   async createPaymentIntent(request: CreatePaymentIntentRequest): Promise<CreatePaymentIntentResponse> {

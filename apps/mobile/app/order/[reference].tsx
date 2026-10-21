@@ -195,7 +195,7 @@ export default function OrderDetailScreen() {
           <View style={styles.fulfillmentBox}>
             <Text style={styles.fulfillmentLabel}>Estado de expedición:</Text>
             <Text style={styles.fulfillmentValue}>{getFulfillmentLabel(suborder.fulfillmentStatus)}</Text>
-            {suborder.trackingNumber && (
+            {Boolean(suborder.trackingNumber) && (
               <Text style={styles.trackingInfo}>
                 Transportista: {suborder.shippingCarrier ?? 'Agencia'} · Nº Seguimiento: {suborder.trackingNumber}
               </Text>

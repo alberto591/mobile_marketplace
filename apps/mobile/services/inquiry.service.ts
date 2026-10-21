@@ -53,7 +53,7 @@ export class InquiryService implements IInquiryService {
       process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
       '';
     this.timeoutMs = options.timeoutMs ?? 15000;
-    this.fetchFn = options.fetchFn ?? fetch;
+    this.fetchFn = options.fetchFn ?? ((input, init) => fetch(input, init));
   }
 
   async submitInquiry(request: SubmitInquiryRequest): Promise<SubmitInquiryResponse> {

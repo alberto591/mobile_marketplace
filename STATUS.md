@@ -1,8 +1,8 @@
 # Estado del Proyecto: Marketplace de Recambios de Desguace
 
-- **Fecha de actualización:** 2026-10-20
-- **Fase completada:** Checkout V2 — Paso 17: Stripe Test-Mode Preflight
-- **Estado de pruebas:** 146 pruebas automatizadas pasando al 100% (105 en `@mobile-marketplace/core`, 41 en `@mobile-marketplace/mobile`)
+- **Fecha de actualización:** 2026-10-21
+- **Fase completada:** BuscaPiezas 24H — MVP Experience Upgrade (7 Features completadas)
+- **Estado de pruebas:** 193 pruebas automatizadas pasando al 100% (105 en `@mobile-marketplace/core`, 88 en `@mobile-marketplace/mobile`)
 - **Tipado estático:** TypeScript estricto (`tsc --noEmit`) superado con 0 errores en core y mobile
 - **Compilación móvil:** Compatible con Expo SDK 57 / React Native 0.86 / `@stripe/stripe-react-native 0.64.0` (21/21 verificaciones de expo-doctor superadas)
 - **Proyecto Supabase Staging:** `lmsjgxhzfksyrlxyqndd` (West Europe - Ireland)
@@ -37,7 +37,7 @@ Se ha completado la auditoría preflight del **Checkout Transaccional V2 con Str
 
 ## 2. Cobertura de Pruebas Automatizadas
 
-Se ejecutan **146 pruebas automatizadas** pasando al 100% con Vitest:
+Se ejecutan **191 pruebas automatizadas** pasando al 100% con Vitest:
 
 | Módulo / Archivo | Pruebas | Estado | Cobertura |
 |---|---|---|---|
@@ -59,6 +59,13 @@ Se ejecutan **146 pruebas automatizadas** pasando al 100% con Vitest:
 | `apps/mobile/test/backend-catalog-service.test.ts` | 9 | Superado | Consulta PostgREST, headers anon, filtros, OEM vs visual, getPartById, Fail Fast, factoría, enrutamiento seguro de imágenes a image-proxy |
 | `apps/mobile/test/live-backend-integration.test.ts` | 8 | Superado | 11 flujos de usuario contra Supabase Staging en vivo con inventario real |
 | `apps/mobile/test/cart-service.test.ts` | 9 | Superado | Carrito, invariantes de cantidad 1, no duplicados, agrupación por desguace, persistencia, céntimos enteros |
+| `apps/mobile/test/category-grid.test.ts` | 5 | Superado | Feature 1: Agrupación visual de categorías y supresión de categorías vacías |
+| `apps/mobile/test/whatsapp-contact.test.ts` | 9 | Superado | Feature 2: Normalización telefónica (+34), mensaje honesto prellenado sin falsos OEM y apertura de WhatsApp |
+| `apps/mobile/test/share-part.test.ts` | 5 | Superado | Feature 3: Generación de mensaje para compartir con mecánico/cliente y manejo de Share nativo |
+| `apps/mobile/test/favourites.test.ts` | 8 | Superado | Feature 4: Persistencia AsyncStorage, deduplicación, sincronización de estado y tolerancia a fallos |
+| `apps/mobile/test/garage.test.ts` | 8 | Superado | Feature 5: Mi Garaje, serialización, filtrado por vehículo y guardarraíles de compatibilidad |
+| `apps/mobile/test/savings-comparison.test.ts` | 6 | Superado | Feature 6: Ahorro matemático seguro, supresión ante PVP ausente y rigor en huella de CO₂ |
+| `apps/mobile/test/cat-trust.test.ts` | 4 | Superado | Feature 7: Evaluación de desguaces CAT, verificación legal, garantías y enlaces oficiales |
 
 ---
 
@@ -66,7 +73,7 @@ Se ejecutan **146 pruebas automatizadas** pasando al 100% con Vitest:
 
 ### 3.1. Comprobación Técnica Previa
 ```bash
-# 1. Comprobar suite completa (124 tests)
+# 1. Comprobar suite completa (193 tests)
 npm test
 
 # 2. Comprobar tipado estricto

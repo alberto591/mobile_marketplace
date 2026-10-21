@@ -1,10 +1,13 @@
 import type {
+  AvailableVehicleMake,
   CatalogSearchResult,
+  CategoryGroupSummary,
   ICatalogService,
   PartDetailResult,
   SearchFilters,
   SearchResultItem,
 } from './catalog-service.interface';
+import { CANONICAL_CATEGORY_GROUPS } from './category-groups.config';
 import type {
   OEMReferenceType,
   Part,
@@ -161,7 +164,14 @@ export function mapRowToPart(row: PublicCatalogPartRow, supabaseBaseUrl?: string
   });
 }
 
-export function mapRowToVendor(row: PublicCatalogPartRow): Vendor {
+export function mapRowToVendor(
+  row: PublicCatalogPartRow,
+  contactOverride?: {
+    readonly publicPhone?: string;
+    readonly publicEmail?: string;
+    readonly websiteUrl?: string;
+  }
+): Vendor {
   const v = row.vendor;
   return Object.freeze({
     id: v.id,
@@ -175,7 +185,11 @@ export function mapRowToVendor(row: PublicCatalogPartRow): Vendor {
       postalCode: v.postalCode,
       country: 'ES' as const,
     }),
-    contact: Object.freeze({}),
+    contact: Object.freeze({
+      publicPhone: contactOverride?.publicPhone,
+      publicEmail: contactOverride?.publicEmail,
+      websiteUrl: contactOverride?.websiteUrl,
+    }),
     policies: Object.freeze({
       warrantyMonths: v.warrantyMonths ?? 12,
       returnDays: v.returnDays ?? 14,
@@ -198,6 +212,11 @@ export class BackendCatalogService implements ICatalogService {
   private readonly anonKey: string;
   private readonly timeoutMs: number;
   private readonly fetchFn: typeof fetch;
+  private categoryGroupsCache?: readonly CategoryGroupSummary[];
+  private readonly vendorContactsCache = new Map<
+    string,
+    { readonly publicPhone?: string; readonly publicEmail?: string; readonly websiteUrl?: string }
+  >();
 
   constructor(options: BackendCatalogServiceOptions = {}) {
     this.baseUrl = (
@@ -210,7 +229,7 @@ export class BackendCatalogService implements ICatalogService {
       process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
       'mock-anon-key-local';
     this.timeoutMs = options.timeoutMs ?? 10000;
-    this.fetchFn = options.fetchFn ?? fetch;
+    this.fetchFn = options.fetchFn ?? ((input, init) => fetch(input, init));
   }
 
   private getHeaders(): Record<string, string> {
@@ -221,12 +240,24 @@ export class BackendCatalogService implements ICatalogService {
     };
   }
 
+  private async ensureVendorContactsLoaded(): Promise<void> {
+    if (this.vendorContactsCache.size > 0) return;
+    await this.getVendors().catch(() => []);
+  }
+
   async search(filters: SearchFilters): Promise<CatalogSearchResult> {
     const params: string[] = ['select=*'];
 
     if (filters.query && filters.query.trim() !== '') {
       const cleanQ = filters.query.trim().replace(/[*%]/g, '');
       params.push(`title=ilike.*${encodeURIComponent(cleanQ)}*`);
+    }
+
+    if (filters.categoryIds && filters.categoryIds.length > 0) {
+      const formatted = filters.categoryIds
+        .map((c) => `"${encodeURIComponent(c)}"`)
+        .join(',');
+      params.push(`category_id=in.(${formatted})`);
     }
 
     if (filters.vendorId) {
@@ -285,7 +316,8 @@ export class BackendCatalogService implements ICatalogService {
 
       for (const row of rows) {
         const part = mapRowToPart(row, this.baseUrl);
-        const vendor = mapRowToVendor(row);
+        const contact = this.vendorContactsCache.get(row.vendor_id);
+        const vendor = mapRowToVendor(row, contact);
 
         // Filter by OEM reference if requested
         if (filters.oemReference) {
@@ -293,6 +325,26 @@ export class BackendCatalogService implements ICatalogService {
             areOEMReferencesEqual(ref, filters.oemReference!)
           );
           if (!matchesOem) {
+            continue;
+          }
+        }
+
+        // Filter by vehicle make if specified and no explicit OEM filter
+        if (filters.vehicleMake && part.donorVehicle) {
+          const donorMake = part.donorVehicle.make.trim().toUpperCase();
+          const targetMake = filters.vehicleMake.trim().toUpperCase();
+          if (donorMake !== targetMake && !filters.oemReference) {
+            continue;
+          }
+        }
+
+        // Filter by vehicle model if specified and no explicit OEM filter
+        if (filters.vehicleModel && part.donorVehicle) {
+          const donorModel = part.donorVehicle.model.trim().toUpperCase();
+          const targetModel = filters.vehicleModel.trim().toUpperCase();
+          const matchesModel =
+            donorModel.includes(targetModel) || targetModel.includes(donorModel);
+          if (!matchesModel && !filters.oemReference) {
             continue;
           }
         }
@@ -378,9 +430,11 @@ export class BackendCatalogService implements ICatalogService {
         return null;
       }
 
+      await this.ensureVendorContactsLoaded();
       const row = rows[0];
       const part = mapRowToPart(row, this.baseUrl);
-      const vendor = mapRowToVendor(row);
+      const contact = this.vendorContactsCache.get(row.vendor_id);
+      const vendor = mapRowToVendor(row, contact);
 
       const target =
         targetVehicle?.make && targetVehicle?.model
@@ -419,7 +473,7 @@ export class BackendCatalogService implements ICatalogService {
   }
 
   async getVendors(): Promise<readonly Vendor[]> {
-    const url = `${this.baseUrl}/rest/v1/vendors?status=eq.ACTIVE&cat_verified=eq.true&select=id,legal_name,trade_name,cat_authorization_code,cat_verified,city,province,postal_code,warranty_months,return_days`;
+    const url = `${this.baseUrl}/rest/v1/vendors?status=eq.ACTIVE&cat_verified=eq.true&select=id,legal_name,trade_name,cat_authorization_code,cat_verified,city,province,postal_code,warranty_months,return_days,public_phone,public_email,website_url`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -432,13 +486,19 @@ export class BackendCatalogService implements ICatalogService {
       });
 
       if (!response.ok) {
-        // Fallback: extract vendors from catalog projection
         return [];
       }
 
       const rows: any[] = await response.json();
-      return rows.map((v) =>
-        Object.freeze({
+      return rows.map((v) => {
+        const contact = {
+          publicPhone: v.public_phone ?? undefined,
+          publicEmail: v.public_email ?? undefined,
+          websiteUrl: v.website_url ?? undefined,
+        };
+        this.vendorContactsCache.set(v.id, contact);
+
+        return Object.freeze({
           id: v.id,
           legalName: v.legal_name,
           tradeName: v.trade_name,
@@ -450,11 +510,7 @@ export class BackendCatalogService implements ICatalogService {
             postalCode: v.postal_code,
             country: 'ES' as const,
           }),
-          contact: Object.freeze({
-            publicPhone: v.public_phone ?? undefined,
-            publicEmail: v.public_email ?? undefined,
-            websiteUrl: v.website_url ?? undefined,
-          }),
+          contact: Object.freeze(contact),
           policies: Object.freeze({
             warrantyMonths: v.warranty_months ?? 12,
             returnDays: v.return_days ?? 14,
@@ -465,8 +521,63 @@ export class BackendCatalogService implements ICatalogService {
           status: 'ACTIVE' as const,
           createdAt: new Date(),
           updatedAt: new Date(),
-        })
-      );
+        });
+      });
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async getCategoryGroups(): Promise<readonly CategoryGroupSummary[]> {
+    if (this.categoryGroupsCache) {
+      return this.categoryGroupsCache;
+    }
+
+    const url = `${this.baseUrl}/rest/v1/public_catalog_parts?select=category_id`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await this.fetchFn(url, {
+        method: 'GET',
+        headers: this.getHeaders(),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const rows: Array<{ category_id?: string }> = await response.json();
+      const countsMap = new Map<string, number>();
+      for (const row of rows) {
+        if (row.category_id) {
+          countsMap.set(row.category_id, (countsMap.get(row.category_id) ?? 0) + 1);
+        }
+      }
+
+      const groups: CategoryGroupSummary[] = [];
+      for (const g of CANONICAL_CATEGORY_GROUPS) {
+        let groupCount = 0;
+        for (const catId of g.categoryIds) {
+          groupCount += countsMap.get(catId) ?? 0;
+        }
+        if (groupCount > 0) {
+          groups.push({
+            id: g.id,
+            label: g.label,
+            subtitle: g.subtitle,
+            iconName: g.iconName,
+            categoryIds: g.categoryIds,
+            count: groupCount,
+          });
+        }
+      }
+
+      this.categoryGroupsCache = Object.freeze(groups);
+      return this.categoryGroupsCache;
     } catch {
       return [];
     } finally {
@@ -477,12 +588,68 @@ export class BackendCatalogService implements ICatalogService {
   async getPopularCategories(): Promise<
     readonly { readonly id: string; readonly label: string; readonly count: number }[]
   > {
-    return [
-      { id: 'ILUMINACION_FARO_IZQ', label: 'Faros Delanteros', count: 42 },
-      { id: 'ELECTRICIDAD_ALTERNADOR', label: 'Alternadores', count: 35 },
-      { id: 'CARROCERIA_RETROVISOR_DCH', label: 'Retrovisores', count: 28 },
-      { id: 'REFRIGERACION_RADIADOR', label: 'Radiadores Motor', count: 19 },
-      { id: 'BRAKES_CALIPER_FR', label: 'Pinzas de Freno', count: 16 },
-    ];
+    const groups = await this.getCategoryGroups();
+    return groups.map((g) => ({
+      id: g.id,
+      label: g.label,
+      count: g.count,
+    }));
+  }
+
+  private availableVehiclesCache?: readonly AvailableVehicleMake[];
+
+  async getAvailableVehicles(): Promise<readonly AvailableVehicleMake[]> {
+    if (this.availableVehiclesCache) {
+      return this.availableVehiclesCache;
+    }
+
+    const url = `${this.baseUrl}/rest/v1/public_catalog_parts?select=donor_vehicle&limit=200`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await this.fetchFn(url, {
+        method: 'GET',
+        headers: this.getHeaders(),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const rows: Array<{ donor_vehicle?: { make?: string; model?: string } | null }> =
+        await response.json();
+      const makeMap = new Map<string, Set<string>>();
+
+      for (const row of rows) {
+        if (row.donor_vehicle?.make) {
+          const make = row.donor_vehicle.make.trim().toUpperCase();
+          if (!makeMap.has(make)) {
+            makeMap.set(make, new Set());
+          }
+          if (row.donor_vehicle.model) {
+            makeMap.get(make)!.add(row.donor_vehicle.model.trim());
+          }
+        }
+      }
+
+      const result: AvailableVehicleMake[] = [];
+      for (const [make, modelsSet] of makeMap.entries()) {
+        result.push({
+          make,
+          models: Array.from(modelsSet).sort((a, b) => a.localeCompare(b, 'es')),
+        });
+      }
+
+      this.availableVehiclesCache = Object.freeze(
+        result.sort((a, b) => a.make.localeCompare(b.make, 'es'))
+      );
+      return this.availableVehiclesCache;
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

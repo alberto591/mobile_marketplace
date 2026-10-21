@@ -1,8 +1,11 @@
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { formatMoney, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
 import type { SearchResultItem } from '../services/catalog-service.interface';
+import { useFavourites } from '../services/favourites-context';
+import { sharePartNative } from '../services/share-part.service';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 import { CompatibilityBadge } from './CompatibilityBadge';
 
@@ -15,6 +18,7 @@ export function PartCard({ item }: Props) {
   const primaryImg = getPrimaryImage(part);
   const primaryOEM = getPrimaryOEMReference(part);
   const [imageError, setImageError] = useState(false);
+  const { isSaved, toggleSaved } = useFavourites();
 
   const conditionLabels: Record<string, string> = {
     EXCELLENT: 'Excelente estado',
@@ -25,6 +29,29 @@ export function PartCard({ item }: Props) {
   };
 
   const isAvailable = part.availability.status === 'AVAILABLE';
+
+  const handleToggleSaved = (e: any) => {
+    e?.stopPropagation?.();
+    toggleSaved(part.id);
+  };
+
+  const handleSharePress = async (e: any) => {
+    e?.stopPropagation?.();
+    await sharePartNative({
+      partId: part.id,
+      externalPartId: part.source.externalPartId,
+      partTitle: part.title,
+      priceFormatted: formatMoney(part.price),
+      vendorTradeName: vendor.tradeName,
+      primaryReference: primaryOEM
+        ? {
+            raw: primaryOEM.raw,
+            isOem: primaryOEM.referenceType === 'OEM_OFFICIAL',
+            referenceType: primaryOEM.referenceType,
+          }
+        : undefined,
+    });
+  };
 
   const handlePress = () => {
     router.push({
@@ -113,13 +140,8 @@ export function PartCard({ item }: Props) {
         {/* Compatibility Badge */}
         <CompatibilityBadge signal={compatibility} />
 
-        {/* Footer: Price, Seller & Availability */}
-        <View style={styles.footer}>
-          <View>
-            <Text style={styles.price}>{formatMoney(part.price)}</Text>
-            <Text style={styles.vatNote}>Impuestos/portes por confirmar</Text>
-          </View>
-
+        {/* Vendor & Actions Row */}
+        <View style={styles.vendorBar}>
           <View style={styles.vendorInfo}>
             <Text style={styles.vendorName} numberOfLines={1}>
               {vendor.tradeName}
@@ -128,6 +150,52 @@ export function PartCard({ item }: Props) {
               <Text style={styles.catCode}>{vendor.catAuthorizationCode}</Text>
               <Text style={styles.locationCity}> · {vendor.location.city}</Text>
             </View>
+          </View>
+
+          <View style={styles.actionButtonsRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.iconBtn,
+                isSaved(part.id) && styles.savedIconBtn,
+                pressed && styles.iconBtnPressed,
+              ]}
+              onPress={handleToggleSaved}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isSaved(part.id)
+                  ? `Quitar ${part.title} de guardados`
+                  : `Guardar ${part.title} en favoritos`
+              }
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={isSaved(part.id) ? 'heart' : 'heart-outline'}
+                size={16}
+                color={isSaved(part.id) ? colors.accent : colors.textSecondary}
+              />
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+              onPress={handleSharePress}
+              accessibilityRole="button"
+              accessibilityLabel={`Compartir recambio ${part.title}`}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="share-social-outline" size={16} color={colors.textSecondary} />
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Price & Checkout Note Row */}
+        <View style={styles.priceFooter}>
+          <View style={styles.priceBlock}>
+            <Text style={styles.price}>{formatMoney(part.price)}</Text>
+            <Text style={styles.vatNote}>Impuestos y portes en checkout</Text>
+          </View>
+          <View style={styles.viewDetailPill}>
+            <Text style={styles.viewDetailText}>Ver pieza</Text>
+            <Ionicons name="chevron-forward" size={13} color={colors.primary} />
           </View>
         </View>
 
@@ -250,35 +318,27 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     flex: 1,
   },
-  footer: {
+  vendorBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     marginTop: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  price: {
-    ...typography.price,
-    color: colors.textPrimary,
-  },
-  vatNote: {
-    fontSize: 11,
-    color: colors.textMuted,
+    paddingTop: spacing.xs,
   },
   vendorInfo: {
-    alignItems: 'flex-end',
-    maxWidth: '55%',
+    flex: 1,
+    marginRight: spacing.sm,
   },
   vendorName: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.textPrimary,
   },
   catRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 2,
+    flexWrap: 'wrap',
   },
   catCode: {
     fontSize: 10,
@@ -288,6 +348,61 @@ const styles = StyleSheet.create({
   locationCity: {
     fontSize: 10,
     color: colors.textSecondary,
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.cardSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBtnPressed: {
+    backgroundColor: colors.card,
+    borderColor: colors.accent,
+  },
+  savedIconBtn: {
+    backgroundColor: 'rgba(202, 2, 2, 0.08)',
+    borderColor: colors.accent,
+  },
+  priceFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  priceBlock: {
+    flex: 1,
+  },
+  price: {
+    ...typography.price,
+    color: colors.textPrimary,
+  },
+  vatNote: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+  viewDetailPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingBottom: 2,
+  },
+  viewDetailText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.primary,
   },
   outOfStockAlert: {
     marginTop: spacing.sm,

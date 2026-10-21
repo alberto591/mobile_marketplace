@@ -9,6 +9,8 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatMoney, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
 import { EmptyState } from '../components/EmptyState';
 import { useCart } from '../services/cart-context';
@@ -16,6 +18,7 @@ import type { CartItem } from '../services/cart.service';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 
 export default function CartScreen() {
+  const insets = useSafeAreaInsets();
   const { items, itemCount, subtotal, vendorGroups, removeItem, clearCart } = useCart();
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
@@ -55,7 +58,7 @@ export default function CartScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 20) + 110 }]}>
         {/* Info Banner */}
         <View style={styles.noticeBanner}>
           <Text style={styles.noticeTitle}>Marketplace transaccional de desguaces</Text>
@@ -151,11 +154,11 @@ export default function CartScreen() {
                         </Text>
                       </View>
 
-                      <View style={styles.priceRow}>
+                      <View style={styles.itemPriceBlock}>
                         <Text style={styles.itemPrice}>
                           {formatMoney(item.part.price)}
                         </Text>
-                        <Text style={styles.itemVat}>Impuestos/portes por confirmar</Text>
+                        <Text style={styles.itemVat}>Impuestos y portes en checkout</Text>
                       </View>
                     </View>
 
@@ -194,37 +197,30 @@ export default function CartScreen() {
         </Pressable>
       </ScrollView>
 
-      {/* Floating Checkout / Availability Confirmation Bar */}
-      <View style={styles.bottomBar}>
-        <View style={styles.bottomSummary}>
-          <View>
+      {/* Floating Checkout Bar with Safe Area Support */}
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) + spacing.xs }]}>
+        <View style={styles.bottomMainRow}>
+          <View style={styles.priceContainer}>
             <Text style={styles.totalCountLabel}>
               {itemCount} {itemCount === 1 ? 'pieza seleccionada' : 'piezas seleccionadas'}
             </Text>
             <Text style={styles.subtotalValue}>{formatMoney(subtotal)}</Text>
-            <Text style={styles.subtotalHint}>Precio de catálogo · Portes e impuestos en checkout</Text>
           </View>
 
-          <View style={styles.actionButtonsCol}>
-            <Pressable
-              style={styles.continueBtn}
-              onPress={() => router.push('/checkout')}
-              accessibilityRole="button"
-              accessibilityLabel="Continuar hacia tramitación y pago del pedido"
-            >
-              <Text style={styles.continueBtnText}>Tramitar pedido</Text>
-            </Pressable>
-
-            <Pressable
-              style={styles.inquiryLinkBtn}
-              onPress={() => router.push('/confirm-availability')}
-              accessibilityRole="button"
-              accessibilityLabel="Consultar disponibilidad con el desguace"
-            >
-              <Text style={styles.inquiryLinkText}>Consultar dudas / disponibilidad</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            style={styles.continueBtn}
+            onPress={() => router.push('/checkout')}
+            accessibilityRole="button"
+            accessibilityLabel="Continuar hacia tramitación y pago del pedido"
+          >
+            <Text style={styles.continueBtnText}>Tramitar pedido</Text>
+            <Ionicons name="arrow-forward" size={16} color={colors.textInverse} style={{ marginLeft: 6 }} />
+          </Pressable>
         </View>
+
+        <Text style={styles.subtotalHint}>
+          Precio de catálogo · Gastos de envío e impuestos en el checkout
+        </Text>
       </View>
     </View>
   );
@@ -358,10 +354,8 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: '600',
   },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
+  itemPriceBlock: {
+    marginTop: 2,
   },
   itemPrice: {
     fontSize: 15,
@@ -371,6 +365,7 @@ const styles = StyleSheet.create({
   itemVat: {
     fontSize: 10,
     color: colors.textMuted,
+    marginTop: 1,
   },
   removeBtn: {
     paddingVertical: spacing.xs,
@@ -426,18 +421,22 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xl,
+    paddingTop: spacing.sm,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -3 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
     elevation: 8,
   },
-  bottomSummary: {
+  bottomMainRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
+  },
+  priceContainer: {
+    flex: 1,
+    marginRight: spacing.sm,
   },
   totalCountLabel: {
     fontSize: 11,
@@ -452,31 +451,21 @@ const styles = StyleSheet.create({
   subtotalHint: {
     fontSize: 10,
     color: colors.textMuted,
+    lineHeight: 14,
   },
   continueBtn: {
     backgroundColor: colors.accent,
-    paddingVertical: 10,
-    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.lg,
     borderRadius: borderRadius.md,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   continueBtnText: {
     color: colors.textInverse,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
-  },
-  actionButtonsCol: {
-    alignItems: 'flex-end',
-  },
-  inquiryLinkBtn: {
-    marginTop: 6,
-    paddingVertical: 2,
-  },
-  inquiryLinkText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    textDecorationLine: 'underline',
   },
   multiVendorBanner: {
     backgroundColor: colors.cardSecondary,
