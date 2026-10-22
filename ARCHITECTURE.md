@@ -154,8 +154,26 @@ Para conciliar la facilidad de comparacion entre vendedores con el rigor legal y
 
 Las siguientes decisiones tecnicas se encuentran formalmente en estado **PENDIENTE** hasta obtener la documentacion real de los dos desguaces iniciales:
 
-- **Mecanismo de Sincronizacion:** Determinar si los desguaces ofrecen webhooks en tiempo real, endpoints de cambios diferenciales (`changes_since`), o si es necesario realizar extracciones completas periodicas (*batch polling*).
-- **Consulta de Stock en Tiempo Real:** Evaluar si existe un endpoint rapido de verificacion de disponibilidad (`checkAvailability(externalId)`) previo a una intencion de reserva.
-- **Capacidad Transaccional:** Confirmar si las APIs permiten crear reservas o pedidos, o si la Fase 1 debe operar exclusivamente con el flujo de solicitud de disponibilidad (leads).
-- **Gestion de Imagenes:** Determinar si las URLs de las imagenes son permanentes y permiten hotlinking directo con cache en CDN, o si es necesario descargarlas y servirlas desde Supabase Storage.
-- **Motor de Busqueda Especializado:** Determinar si el volumen del catalogo inicial y los tiempos de respuesta justifican introducir un motor dedicado (Typesense o Meilisearch) o si PostgreSQL con indices GIN y trigramas satisface los umbrales de latencia.
+- **Mecanismo de Sincronizacion:** Resuelto para Eurodesguace Málaga mediante sincronización por lotes controlados (ADR 005); pendiente para Car Center (VextCentral - ADR 003).
+- **Consulta de Stock en Tiempo Real:** Implementada verificación puntual en Edge Functions y consulta transaccional (ADR 008).
+- **Capacidad Transaccional:** Resuelto en Checkout V2 mediante Stripe Connect Direct Charges (ADR 008) y canal paralelo de consultas (ADR 007).
+- **Gestion de Imagenes:** Resuelto mediante Image Proxy seguro con blindaje anti-SSRF y soporte de CDN (ADR 006).
+- **Motor de Busqueda Especializado:** Resuelto en Fase MVP con PostgreSQL, vistas PostgREST públicas seguras con RLS e índices GIN/trigramas (ADR 004).
+
+---
+
+## 8. Registro de Decisiones de Arquitectura (ADRs)
+
+El detalle exhaustivo de cada decisión técnica, alternativas descartadas y análisis de compensaciones se documenta en:
+
+- [Catálogo Maestro de ADRs (0000-indice-adrs.md)](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/0000-indice-adrs.md)
+- [ADR 001: Desacoplamiento de APIs de Desguaces mediante Arquitectura de Adaptadores Independientes](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/001-provider-adapter-architecture.md)
+- [ADR 002: Separación entre Entidad de Inventario (Part) y Proyección Agregada de Catálogo (ProductIdentity)](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/002-product-identity-vs-part-inventory.md)
+- [ADR 003: Arquitectura de Ingesta Segura de APIs de Desguaces, Ciclo de Vida del Catálogo y Gestión de Disponibilidad](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/003-real-scrapyard-api-ingestion-and-catalog-lifecycle.md)
+- [ADR 004: Lectura Segura de Catálogo Persistido, Separación de Entornos y Desacoplamiento de Mocks](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/004-backend-catalog-persistence-and-secure-client-access.md)
+- [ADR 005: Motor de Sincronización Serverless, Restricción de Cuota por Lote (Clamp 50) e Idempotencia UPSERT](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/005-serverless-sync-engine-and-quota-clamping.md)
+- [ADR 006: Proxy de Imágenes Seguro (Image Proxy Edge Function) con Blindaje Anti-SSRF y Bypass de Errores SSL de Desguaces](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/006-secure-image-proxy-ssrf-hardening-and-ssl-bypass.md)
+- [ADR 007: Flujo Comercial de Consultas Asíncronas (Inquiries) con Notificaciones Transaccionales y Fallback Silencioso](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/007-commercial-inquiry-workflow-and-transactional-notifications.md)
+- [ADR 008: Checkout Transaccional Marketplace con Stripe Connect Direct Charges, Retención de Comisión y Bloqueo de Modo Live](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/008-transactional-checkout-v2-stripe-connect-direct-charges.md)
+- [ADR 009: Arquitectura de Experiencia Móvil BuscaPiezas 24H, Economía Circular y Verificación Legal CAT (RD 265/2021)](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/009-buscapiezas-mvp-mobile-experience-and-circular-economy.md)
+- [ADR 010: Compatibilidad Multiplataforma Expo Go, Shims Condicionales de Stripe y Testing Headless en Node.js](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/010-cross-platform-expo-go-stripe-shims-and-headless-testing.md)

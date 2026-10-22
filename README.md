@@ -107,5 +107,14 @@ cd apps/mobile && npx expo start
 - [STATUS.md](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/STATUS.md): Estado actual del desarrollo, cobertura de tests y metricas.
 - [ARCHITECTURE.md](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/ARCHITECTURE.md): Principios arquitectonicos, modelo canonico y flujo de integracion.
 - [Product Brief](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/2026-10-19_product-brief.md): Investigacion de competidores, marco legal (RD 265/2021) y economia unitaria.
+- [Catálogo Maestro de ADRs](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/0000-indice-adrs.md): Índice centralizado y clasificación de los 10 Architecture Decision Records.
 - [ADR 001](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/001-provider-adapter-architecture.md): Arquitectura de adaptadores independientes para desguaces.
-- [ADR 002](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/002-product-identity-vs-part-inventory.md): Separacion entre Entidad de Inventario (Part) y Proyeccion Agregada de Catalogo (ProductIdentity).
+- [ADR 002](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/002-product-identity-vs-part-inventory.md): Separación entre Entidad de Inventario (Part) y Proyección Agregada de Catálogo (ProductIdentity).
+- [ADR 003](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/003-real-scrapyard-api-ingestion-and-catalog-lifecycle.md): Ingesta segura de APIs de desguaces y ciclo de vida del inventario.
+- [ADR 004](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/004-backend-catalog-persistence-and-secure-client-access.md): Lectura segura de catálogo persistido y desacoplamiento de mocks.
+- [ADR 005](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/005-serverless-sync-engine-and-quota-clamping.md): Motor serverless, restricción de cuota por lote (Clamp 50) e idempotencia UPSERT.
+- [ADR 006](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/006-secure-image-proxy-ssrf-hardening-and-ssl-bypass.md): Proxy de imágenes seguro con blindaje anti-SSRF y bypass SSL.
+- [ADR 007](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/007-commercial-inquiry-workflow-and-transactional-notifications.md): Consultas comerciales asíncronas con honeypot y notificaciones transaccionales.
+- [ADR 008](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/008-transactional-checkout-v2-stripe-connect-direct-charges.md): Checkout transaccional con Stripe Connect Direct Charges y bloqueo de modo live.
+- [ADR 009](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/009-buscapiezas-mvp-mobile-experience-and-circular-economy.md): Experiencia móvil BuscaPiezas 24H, economía circular ADEME/MITECO y verificación legal CAT.
+- [ADR 010](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/ADRs/010-cross-platform-expo-go-stripe-shims-and-headless-testing.md): Compatibilidad multiplataforma Expo Go, shims de Stripe y testing headless en Node.js.
