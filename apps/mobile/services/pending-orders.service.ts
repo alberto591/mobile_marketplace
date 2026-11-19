@@ -12,6 +12,9 @@ import { checkoutService } from './checkout.service';
 import type { OrderDetail } from './checkout.service';
 
 export const PENDING_ORDERS_STORAGE_KEY = '@mobile_marketplace:pending_orders_v1';
+/** Orders placed from this device, kept so the buyer can reopen them ("Mis pedidos"). */
+export const ORDER_HISTORY_STORAGE_KEY = '@mobile_marketplace:order_history_v1';
+const MAX_HISTORY_ORDERS = 30;
 
 /** Entries older than this are dropped even if the backend never answered. */
 const MAX_PENDING_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -59,6 +62,28 @@ export async function rememberPendingOrder(
   const existing = (await listPendingOrders(storage)).filter((o) => o.accessToken !== order.accessToken);
   const next = [...existing, { ...order, createdAt: now }].slice(-MAX_PENDING_ORDERS);
   await storage.setItem(PENDING_ORDERS_STORAGE_KEY, JSON.stringify(next));
+  await rememberOrderInHistory(storage, order, now);
+}
+
+/** Newest first. Unlike pending orders, history entries survive once the order is settled. */
+export async function listOrderHistory(storage: ICartStorage): Promise<PendingOrder[]> {
+  return parsePendingOrders(await storage.getItem(ORDER_HISTORY_STORAGE_KEY)).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function rememberOrderInHistory(
+  storage: ICartStorage,
+  order: Omit<PendingOrder, 'createdAt'>,
+  now: number = Date.now()
+): Promise<void> {
+  const history = await listOrderHistory(storage);
+  if (history.some((o) => o.accessToken === order.accessToken)) return;
+  const next = [{ ...order, createdAt: now }, ...history].slice(0, MAX_HISTORY_ORDERS);
+  await storage.setItem(ORDER_HISTORY_STORAGE_KEY, JSON.stringify(next));
+}
+
+export async function forgetOrderInHistory(storage: ICartStorage, accessToken: string): Promise<void> {
+  const next = (await listOrderHistory(storage)).filter((o) => o.accessToken !== accessToken);
+  await storage.setItem(ORDER_HISTORY_STORAGE_KEY, JSON.stringify(next));
 }
 
 /**

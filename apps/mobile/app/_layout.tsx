@@ -4,6 +4,7 @@ import React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StripeProvider } from '../services/stripe-client';
 import { HeaderNavActions } from '../components/HeaderNavActions';
+import { AppErrorBoundary } from '../components/AppErrorBoundary';
 import { CartProvider } from '../services/cart-context';
 import { FavouritesProvider } from '../services/favourites-context';
 import { GarageProvider } from '../services/garage-context';
@@ -14,6 +15,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      <AppErrorBoundary>
       <StripeProvider
         publishableKey={stripePublishableKey}
         merchantIdentifier="merchant.com.marketplace.recambios"
@@ -92,6 +94,23 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="orders"
+              options={{
+                title: 'Mis pedidos',
+                headerBackTitle: 'Atrás',
+                headerRight: () => <HeaderNavActions hideOrders />,
+              }}
+            />
+            <Stack.Screen
+              name="vendor/order"
+              options={{
+                title: 'Pedido para enviar',
+                // Seller page: opened from an email link, outside the shopping flow.
+                headerBackVisible: false,
+                headerRight: () => null,
+              }}
+            />
+            <Stack.Screen
               name="confirm-availability"
               options={{
                 title: 'Confirmar disponibilidad',
@@ -104,6 +123,7 @@ export default function RootLayout() {
       </FavouritesProvider>
     </CartProvider>
     </StripeProvider>
+      </AppErrorBoundary>
   </SafeAreaProvider>
 );
 }

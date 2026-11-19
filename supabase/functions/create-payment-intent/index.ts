@@ -706,6 +706,19 @@ export async function handler(req: Request): Promise<Response> {
         { status: 422, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       );
     }
+
+    // A part without a real price (0 or missing in the provider feed) must never be sold
+    // for the shipping cost alone: it has to go through an availability inquiry.
+    if (!Number.isInteger(p.price_cents) || p.price_cents <= 0) {
+      return jsonResponse(
+        {
+          error: 'PRICE_NOT_CONFIRMED',
+          message: `La pieza "${p.title}" (${p.external_part_id}) no tiene un precio confirmado. Consulta la disponibilidad con el desguace antes de comprarla.`,
+          partId: p.id,
+        },
+        422
+      );
+    }
   }
 
   // 3. Single-vendor validation

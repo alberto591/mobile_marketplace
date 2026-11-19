@@ -62,6 +62,14 @@ export function canAddToCart(part: Part): { allowed: boolean; reason?: string } 
   const status = part.availability.status;
   const quantity = part.availability.stockQuantity;
 
+  // No real price in the scrapyard feed: the server refuses to charge it too.
+  if (status === 'AVAILABLE' && quantity > 0 && !(part.price.amountInCents > 0)) {
+    return {
+      allowed: false,
+      reason: 'Esta pieza no tiene un precio confirmado. Consulta la disponibilidad con el desguace.',
+    };
+  }
+
   if (status === 'AVAILABLE' && quantity > 0) {
     return { allowed: true };
   }

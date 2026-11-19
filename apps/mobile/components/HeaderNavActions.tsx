@@ -9,14 +9,27 @@ import { borderRadius, colors, spacing } from '../theme/index';
 interface Props {
   readonly hideSaved?: boolean;
   readonly hideCart?: boolean;
+  readonly hideOrders?: boolean;
 }
 
-export function HeaderNavActions({ hideSaved = false, hideCart = false }: Props) {
+export function HeaderNavActions({ hideSaved = false, hideCart = false, hideOrders = false }: Props) {
   const { itemCount } = useCart();
   const { savedCount } = useFavourites();
 
   return (
     <View style={styles.container}>
+      {!hideOrders && (
+        <Pressable
+          style={({ pressed }) => [styles.button, styles.iconOnlyButton, pressed && styles.buttonPressed]}
+          onPress={() => router.push('/orders')}
+          accessibilityRole="button"
+          accessibilityLabel="Mis pedidos"
+          hitSlop={8}
+        >
+          <Ionicons name="receipt-outline" size={16} color={colors.textInverse} />
+        </Pressable>
+      )}
+
       {!hideSaved && (
         <Pressable
           style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
@@ -76,6 +89,10 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.75,
+  },
+  iconOnlyButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
   },
   icon: {
     marginRight: 4,

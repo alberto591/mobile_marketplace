@@ -53,4 +53,5 @@ jobs:
           deno check \
             supabase/functions/create-payment-intent/index.ts \
             supabase/functions/stripe-webhook/index.ts \
-            supabase/functions/eurodesguace-sync/index.ts
+            supabase/functions/eurodesguace-sync/index.ts \
+            supabase/functions/vendor-order/index.ts

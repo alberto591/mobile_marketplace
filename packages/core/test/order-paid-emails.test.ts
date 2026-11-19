@@ -3,6 +3,7 @@ import {
   buildBuyerOrderEmail,
   buildSellerOrderEmail,
   formatCents,
+  sendOpsAlert,
   sendOrderPaidNotifications,
   type OrderEmailConfig,
 } from '../../../supabase/functions/_shared/order-emails.js';
@@ -87,6 +88,7 @@ describe('Order paid emails', () => {
     expect(buyerMail.to).toBe('ana@example.com');
     expect(buyerMail.html).toContain('54,50 EUR');
     expect(buyerMail.html).not.toContain('Comisión'); // the buyer never sees the platform fee
+    expect(buyerMail.html).not.toContain('vendor/order'); // nor the seller's action link
 
     expect(outcomes.map((o) => `${o.audience}:${o.status}`)).toEqual(['SELLER:SENT', 'BUYER:SENT']);
     expect(upserts.map((u) => `${u.audience}:${u.status}:${u.attempt_count}`)).toEqual(['SELLER:SENT:1', 'BUYER:SENT:1']);
@@ -174,9 +176,36 @@ describe('Order paid emails', () => {
       subtotalCents: 1, shippingCents: 0, taxCents: 0, totalCents: 1, platformFeeCents: 0, sellerNetCents: 1,
       customer: { name: 'A', email: 'a@b.c', phone: '1' },
       shipping: { line1: 'x', line2: null, city: 'c', province: 'p', postalCode: '29001', country: 'ES' },
-      vendor: { tradeName: 'V', email: null, phone: null }, items: [],
+      vendor: { tradeName: 'V', email: null, phone: null }, items: [], vendorActionToken: null,
     };
     expect(buildBuyerOrderEmail(order, liveConfig, null).subject).not.toMatch(/[\r\n]/);
     expect(buildSellerOrderEmail(order, liveConfig, null).subject).not.toMatch(/[\r\n]/);
+  });
+});
+
+describe('Operations alert', () => {
+  const base = { resendApiKey: 're_test', fromEmail: 'pedidos@buscapiezas.example', opsAlertEmail: 'ops@buscapiezas.example' };
+
+  it('emails the ops inbox with the facts, escaped, and a single-line subject', async () => {
+    const sender = vi.fn(async () => ({ success: true }));
+    const status = await sendOpsAlert({
+      ...base,
+      subject: 'Pago que requiere\nrevisión manual',
+      details: ['REVISIÓN MANUAL: piezas ya vendidas <b>', 'PaymentIntent: pi_123'],
+      sender,
+    });
+
+    expect(status).toBe('SENT');
+    const mail = (sender.mock.calls[0] as any[])[0];
+    expect(mail.to).toBe('ops@buscapiezas.example');
+    expect(mail.subject).toBe('[ACCIÓN REQUERIDA] Pago que requiere revisión manual');
+    expect(mail.html).toContain('pi_123');
+    expect(mail.html).toContain('&lt;b&gt;');
+  });
+
+  it('reports when it is not configured or the provider fails, without throwing', async () => {
+    expect(await sendOpsAlert({ ...base, opsAlertEmail: undefined, subject: 's', details: [] })).toBe('SKIPPED_NOT_CONFIGURED');
+    const failing = vi.fn(async () => { throw new Error('down'); });
+    expect(await sendOpsAlert({ ...base, subject: 's', details: [], sender: failing })).toBe('FAILED');
   });
 });

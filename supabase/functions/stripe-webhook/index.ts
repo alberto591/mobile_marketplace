@@ -4,7 +4,7 @@
 // order and suborder statuses idempotently without storing unnecessary personal data.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
-import { sendOrderPaidNotifications } from '../_shared/order-emails.ts';
+import { sendOpsAlert, sendOrderPaidNotifications } from '../_shared/order-emails.ts';
 
 declare const Deno: {
   env: {
@@ -301,6 +301,7 @@ export async function handler(req: Request): Promise<Response> {
                   Deno.env.get('ORDER_TEST_RECIPIENT_EMAIL') || Deno.env.get('INQUIRY_TEST_RECIPIENT_EMAIL'),
                 sellerFallbackEmail:
                   Deno.env.get('ORDER_SELLER_FALLBACK_EMAIL') || Deno.env.get('EURODESGUACE_INQUIRY_EMAIL'),
+                vendorPortalBaseUrl: Deno.env.get('VENDOR_PORTAL_BASE_URL'),
               },
             });
             const undelivered = outcomes.filter((o) => o.status === 'FAILED' || o.status === 'SKIPPED_NOT_CONFIGURED');
@@ -509,6 +510,26 @@ export async function handler(req: Request): Promise<Response> {
     }
   } catch (err: any) {
     processingError = err.message;
+  }
+
+  // A charge that needs a person (refund for a part already sold, amount mismatch) must not
+  // wait for someone to read the events table: email operations right away.
+  if (processingWarning && processingWarning.includes('REVISIÓN MANUAL')) {
+    const alertStatus = await sendOpsAlert({
+      resendApiKey: Deno.env.get('RESEND_API_KEY'),
+      fromEmail: Deno.env.get('ORDER_FROM_EMAIL') || Deno.env.get('INQUIRY_FROM_EMAIL'),
+      opsAlertEmail: Deno.env.get('OPS_ALERT_EMAIL'),
+      subject: 'Pago que requiere revisión manual',
+      details: [
+        ...processingWarning.split(' | '),
+        `Evento Stripe: ${event.id} (${event.type})`,
+        `PaymentIntent: ${paymentIntentId ?? 'desconocido'}`,
+        `Cuenta conectada: ${accountId ?? 'desconocida'}`,
+      ],
+    });
+    if (alertStatus !== 'SENT') {
+      processingWarning = `${processingWarning} | ALERTA A OPERACIONES NO ENVIADA (${alertStatus})`;
+    }
   }
 
   // Update webhook event processing status

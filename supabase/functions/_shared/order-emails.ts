@@ -37,6 +37,8 @@ export interface PaidSuborderDetails {
   };
   readonly vendor: { readonly tradeName: string; readonly email: string | null; readonly phone: string | null };
   readonly items: readonly OrderEmailItem[];
+  /** Capability token for the seller page of this suborder. Only ever sent to the seller. */
+  readonly vendorActionToken: string | null;
 }
 
 export interface OrderEmailConfig {
@@ -47,6 +49,8 @@ export interface OrderEmailConfig {
   readonly testRecipientEmail?: string;
   /** Used when the vendor has no public email on file. */
   readonly sellerFallbackEmail?: string;
+  /** Base URL of the web app hosting /vendor/order, e.g. https://app.example.com */
+  readonly vendorPortalBaseUrl?: string;
 }
 
 export interface EmailMessage {
@@ -120,6 +124,15 @@ function testBannerHtml(order: PaidSuborderDetails, config: OrderEmailConfig, in
   </p>`;
 }
 
+/**
+ * Link to the seller page. The token goes in the URL fragment, which browsers never send
+ * to the web host (no server logs, no Referer); the page posts it to the Edge Function.
+ */
+export function vendorOrderLink(baseUrl: string | undefined, token: string | null): string | null {
+  if (!baseUrl || !token || !/^https?:\/\//i.test(baseUrl) || !/^[a-f0-9]{64}$/.test(token)) return null;
+  return `${baseUrl.replace(/\/+$/, '')}/vendor/order#token=${token}`;
+}
+
 const tableHead = `<thead><tr style="background: #f1f5f9;">
   <th style="padding: 8px; text-align: left;">Pieza</th>
   <th style="padding: 8px; text-align: left;">Referencia</th>
@@ -135,6 +148,13 @@ export function buildSellerOrderEmail(
   const subject = singleLine(
     `${prefix}Nuevo pedido pagado ${order.suborderReference} — ${order.items.length} pieza(s) para enviar`
   );
+  const shipLink = vendorOrderLink(config.vendorPortalBaseUrl, order.vendorActionToken);
+  const shipLinkHtml = shipLink
+    ? `<p style="margin: 20px 0;">
+        <a href="${escapeHtml(shipLink)}" style="background: #0f172a; color: #ffffff; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-weight: bold;">Marcar como enviado</a>
+      </p>
+      <p style="font-size: 12px; color: #64748b;">Cuando lo entregues al transportista, pulsa el botón e indica el número de seguimiento: avisaremos al cliente. El enlace es exclusivo de este pedido; no lo reenvíes.</p>`
+    : '';
   const html = `
   <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
     ${testBannerHtml(order, config, intendedRecipient)}
@@ -145,6 +165,7 @@ export function buildSellerOrderEmail(
       ${tableHead}
       <tbody>${itemRowsHtml(order)}</tbody>
     </table>
+    ${shipLinkHtml}
 
     <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 16px 0;">
       <h3 style="margin-top: 0; font-size: 16px;">Enviar a:</h3>
@@ -250,11 +271,12 @@ export function mapSuborderRow(row: any): PaidSuborderDetails {
       externalPartId: i.external_part_id,
       unitPriceCents: i.unit_price_cents,
     })),
+    vendorActionToken: row.vendor_action_token ?? null,
   };
 }
 
 export const SUBORDER_EMAIL_SELECT = `
-  id, suborder_reference, currency, subtotal_cents, shipping_cents, tax_cents, total_cents,
+  id, suborder_reference, vendor_action_token, currency, subtotal_cents, shipping_cents, tax_cents, total_cents,
   platform_fee_cents, seller_net_cents,
   orders ( order_reference, is_test_order, customer_name, customer_email, customer_phone,
            shipping_address_line1, shipping_address_line2, shipping_city, shipping_province,
@@ -396,4 +418,42 @@ export async function sendOrderPaidNotifications(params: {
   }
 
   return outcomes;
+}
+
+/**
+ * Emails the operations inbox about something a person must act on (e.g. a payment that
+ * needs a refund). Never throws; returns what happened so the caller can log it.
+ * Always goes to the ops address, in test mode too: it concerns staff, not customers.
+ */
+export async function sendOpsAlert(params: {
+  resendApiKey?: string;
+  fromEmail?: string;
+  opsAlertEmail?: string;
+  subject: string;
+  /** Plain-text facts, one per line. */
+  details: readonly string[];
+  sender?: EmailSender;
+}): Promise<'SENT' | 'FAILED' | 'SKIPPED_NOT_CONFIGURED'> {
+  const sender: EmailSender | null =
+    params.sender ?? (params.resendApiKey ? (m) => defaultResendSender(params.resendApiKey!, m) : null);
+  if (!sender || !params.fromEmail || !params.opsAlertEmail) return 'SKIPPED_NOT_CONFIGURED';
+
+  const html = `
+  <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+    <h2 style="color: #b91c1c;">${escapeHtml(params.subject)}</h2>
+    <ul>${params.details.map((d) => `<li>${escapeHtml(d)}</li>`).join('')}</ul>
+    <p style="font-size: 12px; color: #64748b;">Aviso automático de BuscaPiezas 24H. El detalle queda guardado en stripe_webhook_events.error_message.</p>
+  </div>`;
+
+  try {
+    const result = await sender({
+      to: params.opsAlertEmail,
+      from: params.fromEmail,
+      subject: singleLine(`[ACCIÓN REQUERIDA] ${params.subject}`),
+      html,
+    });
+    return result.success ? 'SENT' : 'FAILED';
+  } catch {
+    return 'FAILED';
+  }
 }

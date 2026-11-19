@@ -16,7 +16,7 @@ import { initStripe, useStripe } from '../services/stripe-client';
 import { formatMoney } from '@mobile-marketplace/core';
 import { useCart } from '../services/cart-context';
 import { AsyncStorageCartStorage } from '../services/cart-storage';
-import { rememberPendingOrder } from '../services/pending-orders.service';
+import { rememberOrderInHistory, rememberPendingOrder } from '../services/pending-orders.service';
 import { CheckoutError, checkoutService } from '../services/checkout.service';
 import type { CheckoutPricingResponse } from '../services/checkout.service';
 import {
@@ -178,6 +178,11 @@ export default function CheckoutScreen() {
 
       // This attempt was already paid (e.g. the first response was lost): show the order.
       if (!res.clientSecret && res.status !== 'PENDING_PAYMENT') {
+        await rememberOrderInHistory(new AsyncStorageCartStorage(), {
+          reference: res.orderReference,
+          accessToken: res.accessToken,
+          partIds,
+        });
         goToOrder(res.orderReference, res.accessToken);
         return;
       }

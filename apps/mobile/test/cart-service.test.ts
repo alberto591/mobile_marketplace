@@ -101,6 +101,18 @@ describe('Cart Domain & CartService (SOLID Unit & Invariant Testing)', () => {
     });
     expect(canAddToCart(availablePart).allowed).toBe(true);
 
+    // A part with no real price can never go to checkout (it would be sold for shipping only)
+    const unpricedPart = createMockPart({
+      id: 'p0',
+      vendorId: vendor1.id,
+      title: 'PIEZA SIN PRECIO',
+      cents: 0,
+      status: 'AVAILABLE',
+      stockQuantity: 1,
+    });
+    expect(canAddToCart(unpricedPart).allowed).toBe(false);
+    expect(canAddToCart(unpricedPart).reason).toContain('precio confirmado');
+
     const pendingPart = createMockPart({
       id: 'p2',
       vendorId: vendor1.id,
