@@ -185,7 +185,7 @@ describe('BackendCatalogService', () => {
     expect(oemUrl).toContain('/rest/v1/rpc/search_public_catalog_parts?');
     expect(oemUrl).toContain('p_oem=6F0857508B');
     expect(oemUrl).toContain('order=price_cents.asc');
-    expect(oemUrl).toContain('limit=100');
+    expect(oemUrl).toContain('limit=51');
 
     const [vehicleUrl] = fetchMock.mock.calls[1];
     expect(vehicleUrl).toContain('/rest/v1/rpc/search_public_catalog_parts?');
@@ -195,6 +195,30 @@ describe('BackendCatalogService', () => {
     const [plainUrl] = fetchMock.mock.calls[2];
     expect(plainUrl).toContain('/rest/v1/public_catalog_parts?');
     expect(plainUrl).not.toContain('/rpc/');
+  });
+
+  it('pages results: asks for one extra row and returns nextOffset only when more exist', async () => {
+    const page = (n: number) => Array.from({ length: n }, (_, i) => ({ ...sampleRow1, id: `row-${i}` }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => page(51) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => page(7) });
+    const service = new BackendCatalogService({
+      baseUrl: 'https://test.supabase.co',
+      anonKey: 'test-key',
+      fetchFn: fetchMock as any,
+    });
+
+    const first = await service.search({ query: 'faro' });
+    expect(first.items).toHaveLength(50);
+    expect(first.nextOffset).toBe(50);
+    expect(fetchMock.mock.calls[0][0]).not.toContain('offset=');
+
+    const second = await service.search({ query: 'faro', offset: first.nextOffset });
+    expect(second.items).toHaveLength(7);
+    expect(second.nextOffset).toBeUndefined();
+    expect(fetchMock.mock.calls[1][0]).toContain('offset=50');
+    expect(fetchMock.mock.calls[1][0]).toContain('limit=51');
   });
 
   it('filters by OEM reference and evaluates official OEM compatibility', async () => {

@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -13,6 +13,7 @@ import { EmptyState } from '../components/EmptyState';
 import { PartCard } from '../components/PartCard';
 import type {
   CatalogSearchResult,
+  SearchFilters,
   SortOrderOption,
 } from '../services/catalog-service.interface';
 import { catalogService } from '../services/catalog-service.factory';
@@ -55,6 +56,12 @@ export default function ResultsScreen() {
   const [discoveredVendors, setDiscoveredVendors] = useState<Array<{ id: string; name: string }>>([]);
   const [onlyAvailable, setOnlyAvailable] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<SortOrderOption>('relevance');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  // Filters of the search on screen, and a counter that invalidates "load more"
+  // responses belonging to a search the user has already replaced.
+  const activeFiltersRef = useRef<SearchFilters | null>(null);
+  const searchGenerationRef = useRef(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -62,18 +69,22 @@ export default function ResultsScreen() {
     async function fetchResults() {
       setLoading(true);
       setError(null);
+      setLoadMoreError(null);
+      const filters: SearchFilters = {
+        query: params.query,
+        oemReference: params.oemReference,
+        vehicleMake: activeVehicleMake,
+        vehicleModel: activeVehicleModel,
+        vehicleYear: activeVehicleYear,
+        categoryIds: params.categoryIds ? params.categoryIds.split(',') : undefined,
+        vendorId: selectedVendor,
+        onlyAvailable,
+        sortBy,
+      };
+      activeFiltersRef.current = filters;
+      searchGenerationRef.current += 1;
       try {
-        const res = await catalogService.search({
-          query: params.query,
-          oemReference: params.oemReference,
-          vehicleMake: activeVehicleMake,
-          vehicleModel: activeVehicleModel,
-          vehicleYear: activeVehicleYear,
-          categoryIds: params.categoryIds ? params.categoryIds.split(',') : undefined,
-          vendorId: selectedVendor,
-          onlyAvailable,
-          sortBy,
-        });
+        const res = await catalogService.search(filters);
 
         if (isMounted) {
           setResults(res);
@@ -115,6 +126,32 @@ export default function ResultsScreen() {
     onlyAvailable,
     sortBy,
   ]);
+
+  const loadMore = async () => {
+    const filters = activeFiltersRef.current;
+    const offset = results?.nextOffset;
+    if (!filters || offset === undefined || loadingMore) return;
+
+    const generation = searchGenerationRef.current;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const next = await catalogService.search({ ...filters, offset });
+      if (generation !== searchGenerationRef.current) return;
+      setResults((prev) => {
+        if (!prev) return next;
+        const seen = new Set(prev.items.map((i) => i.part.id));
+        const items = [...prev.items, ...next.items.filter((i) => !seen.has(i.part.id))];
+        return { ...prev, items, totalCount: items.length, nextOffset: next.nextOffset };
+      });
+    } catch (err: any) {
+      if (generation === searchGenerationRef.current) {
+        setLoadMoreError(err?.message || 'No se pudieron cargar más piezas');
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const searchSummaryParts = [
     params.categoryLabel ? `Categoría: ${params.categoryLabel}` : null,
@@ -282,6 +319,27 @@ export default function ResultsScreen() {
           keyExtractor={(item) => item.part.id}
           renderItem={({ item }) => <PartCard item={item} />}
           contentContainerStyle={styles.listContent}
+          ListFooterComponent={
+            results.nextOffset !== undefined ? (
+              <View style={styles.loadMoreContainer}>
+                {Boolean(loadMoreError) && <Text style={styles.loadMoreError}>{loadMoreError}</Text>}
+                <Pressable
+                  style={[styles.loadMoreBtn, loadingMore && styles.loadMoreBtnDisabled]}
+                  onPress={loadMore}
+                  disabled={loadingMore}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cargar más piezas"
+                  accessibilityState={{ disabled: loadingMore, busy: loadingMore }}
+                >
+                  {loadingMore ? (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  ) : (
+                    <Text style={styles.loadMoreText}>Cargar más piezas</Text>
+                  )}
+                </Pressable>
+              </View>
+            ) : undefined
+          }
         />
       ) : (
         <View style={styles.emptyContainer}>
@@ -322,6 +380,32 @@ export default function ResultsScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadMoreContainer: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  loadMoreBtn: {
+    minHeight: 44,
+    minWidth: 200,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  loadMoreBtnDisabled: {
+    opacity: 0.6,
+  },
+  loadMoreText: {
+    color: colors.accent,
+    fontWeight: '600',
+  },
+  loadMoreError: {
+    color: colors.danger,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.background,

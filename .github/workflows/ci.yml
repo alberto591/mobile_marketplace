@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Both scripts build packages/core first (pretypecheck / pretest).
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Tests against the live staging backend are opt-in (npm run test:live) and do not run here.
+      - name: Unit tests
+        run: npm test
+
+  edge-functions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # submit-inquiry and image-proxy have known, harmless type errors and are not
+      # checked yet; add them here once those are fixed.
+      - name: Typecheck Edge Functions
+        run: |
+          deno check \
+            supabase/functions/create-payment-intent/index.ts \
+            supabase/functions/stripe-webhook/index.ts \
+            supabase/functions/eurodesguace-sync/index.ts

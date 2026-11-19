@@ -1,5 +1,11 @@
 name: Scheduled Catalog Sync
 
+# Walks the Eurodesguace catalog in batches of up to 50 parts and saves each batch
+# (eurodesguace-sync?action=sync-batch -> ingest_catalog_batch). The position is stored
+# in the database, so a run that stops early is resumed by the next one, and after the
+# last page the next run starts a new full pass (picking up price changes and parts the
+# scrapyard has sold or withdrawn).
+
 on:
   schedule:
     # Run every 6 hours
@@ -10,32 +16,93 @@ on:
         description: Batch size per sync call (max 50)
         required: false
         default: '50'
+      max_batches:
+        description: Maximum batches in this run
+        required: false
+        default: '100'
+
+concurrency:
+  group: catalog-sync
+  cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Trigger eurodesguace-sync batch
+      - name: Sync catalog batches
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SYNC_ADMIN_SECRET: ${{ secrets.SYNC_ADMIN_SECRET }}
           BATCH_LIMIT: ${{ github.event.inputs.limit || '50' }}
+          MAX_BATCHES: ${{ github.event.inputs.max_batches || '100' }}
+          PAUSE_SECONDS: '2'
         run: |
+          set -euo pipefail
+
           if [ -z "$SUPABASE_URL" ] || [ -z "$SYNC_ADMIN_SECRET" ]; then
             echo "Missing SUPABASE_URL or SYNC_ADMIN_SECRET secret" >&2
             exit 1
           fi
+          case "$BATCH_LIMIT$MAX_BATCHES" in
+            *[!0-9]*) echo "limit and max_batches must be numbers" >&2; exit 1 ;;
+          esac
 
-          http_code=$(curl -sS -o /tmp/sync_response.json -w "%{http_code}" \
-            -X POST "${SUPABASE_URL%/}/functions/v1/eurodesguace-sync?action=sync-batch&limit=${BATCH_LIMIT}" \
-            -H "Authorization: Bearer ${SYNC_ADMIN_SECRET}" \
-            -H "Content-Type: application/json")
+          endpoint="${SUPABASE_URL%/}/functions/v1/eurodesguace-sync?action=sync-batch&limit=${BATCH_LIMIT}"
+          batch=0
+          rate_limit_retries=0
+          total_created=0
+          total_updated=0
+          total_deactivated=0
 
-          echo "Sync HTTP status: ${http_code}"
-          cat /tmp/sync_response.json
-          echo ""
+          while [ "$batch" -lt "$MAX_BATCHES" ]; do
+            http_code=$(curl -sS -o /tmp/sync_response.json -w "%{http_code}" --max-time 120 \
+              -X POST "$endpoint" \
+              -H "Authorization: Bearer ${SYNC_ADMIN_SECRET}" \
+              -H "Content-Type: application/json")
 
-          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
-            echo "Catalog sync failed with HTTP ${http_code}" >&2
-            exit 1
-          fi
+            if [ "$http_code" = "429" ]; then
+              rate_limit_retries=$((rate_limit_retries + 1))
+              if [ "$rate_limit_retries" -gt 5 ]; then
+                echo "Provider keeps rate limiting; stopping. The next run resumes from the stored cursor."
+                break
+              fi
+              wait=$(jq -r '.retryAfterSeconds // 30' /tmp/sync_response.json)
+              [ "$wait" -gt 120 ] && wait=120
+              echo "Rate limited by the provider; waiting ${wait}s"
+              sleep "$wait"
+              continue
+            fi
+
+            if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+              echo "Catalog sync failed with HTTP ${http_code}" >&2
+              cat /tmp/sync_response.json >&2 || true
+              exit 1
+            fi
+
+            if [ "$(jq -r '.persisted' /tmp/sync_response.json)" != "true" ]; then
+              echo "Batch was fetched but NOT saved: $(jq -r '.notPersistedReason // "unknown"' /tmp/sync_response.json)" >&2
+              exit 1
+            fi
+
+            batch=$((batch + 1))
+            total_created=$((total_created + $(jq -r '.created // 0' /tmp/sync_response.json)))
+            total_updated=$((total_updated + $(jq -r '.updated // 0' /tmp/sync_response.json)))
+            total_deactivated=$((total_deactivated + $(jq -r '.deactivatedItems // 0' /tmp/sync_response.json)))
+            echo "Batch ${batch}: $(jq -c '{validItems, created, updated, deactivatedItems, needsPriceConfirmation, hasMore}' /tmp/sync_response.json)"
+
+            if [ "$(jq -r '.hasMore' /tmp/sync_response.json)" != "true" ]; then
+              echo "Full catalog pass complete."
+              break
+            fi
+            sleep "$PAUSE_SECONDS"
+          done
+
+          echo "Run summary: batches=${batch} created=${total_created} updated=${total_updated} deactivated=${total_deactivated}"
+          {
+            echo "### Catalog sync"
+            echo "- Batches: ${batch}"
+            echo "- Created: ${total_created}"
+            echo "- Updated: ${total_updated}"
+            echo "- Taken off sale: ${total_deactivated}"
+          } >> "$GITHUB_STEP_SUMMARY"

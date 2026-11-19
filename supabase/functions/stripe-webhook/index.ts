@@ -4,6 +4,7 @@
 // order and suborder statuses idempotently without storing unnecessary personal data.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { sendOrderPaidNotifications } from '../_shared/order-emails.ts';
 
 declare const Deno: {
   env: {
@@ -285,6 +286,28 @@ export async function handler(req: Request): Promise<Response> {
               })
               .eq('id', suborder.order_id);
             if (orderUpdateError) throw new Error(`Error actualizando pedido: ${orderUpdateError.message}`);
+
+            // Tell the seller to ship and confirm to the buyer. Sent once per suborder
+            // (order_notifications); a mail failure is logged and never fails the payment.
+            const outcomes = await sendOrderPaidNotifications({
+              supabase,
+              suborderId: suborder.id,
+              config: {
+                resendApiKey: Deno.env.get('RESEND_API_KEY'),
+                fromEmail: Deno.env.get('ORDER_FROM_EMAIL') || Deno.env.get('INQUIRY_FROM_EMAIL'),
+                // Safe default: real buyers and sellers are only emailed when explicitly enabled.
+                testMode: Deno.env.get('ORDER_EMAIL_TEST_MODE') !== 'false',
+                testRecipientEmail:
+                  Deno.env.get('ORDER_TEST_RECIPIENT_EMAIL') || Deno.env.get('INQUIRY_TEST_RECIPIENT_EMAIL'),
+                sellerFallbackEmail:
+                  Deno.env.get('ORDER_SELLER_FALLBACK_EMAIL') || Deno.env.get('EURODESGUACE_INQUIRY_EMAIL'),
+              },
+            });
+            const undelivered = outcomes.filter((o) => o.status === 'FAILED' || o.status === 'SKIPPED_NOT_CONFIGURED');
+            if (undelivered.length > 0) {
+              const detail = undelivered.map((o) => `${o.audience}: ${o.error ?? o.status}`).join('; ');
+              processingWarning = `${processingWarning ? processingWarning + ' | ' : ''}AVISO NO ENVIADO (${detail})`;
+            }
           }
         }
         break;

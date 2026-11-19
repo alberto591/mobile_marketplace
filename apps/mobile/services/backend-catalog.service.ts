@@ -21,6 +21,9 @@ import {
   normalizeOEMReference,
 } from '@mobile-marketplace/core';
 
+/** Results per search page. */
+export const SEARCH_PAGE_SIZE = 50;
+
 export interface BackendCatalogServiceOptions {
   readonly baseUrl?: string;
   readonly anonKey?: string;
@@ -291,7 +294,10 @@ export class BackendCatalogService implements ICatalogService {
       params.push('order=last_synced_at.desc');
     }
 
-    params.push('limit=100');
+    // One extra row tells whether another page exists without a count query.
+    const offset = filters.offset && filters.offset > 0 ? Math.floor(filters.offset) : 0;
+    params.push(`limit=${SEARCH_PAGE_SIZE + 1}`);
+    if (offset > 0) params.push(`offset=${offset}`);
 
     // OEM / make / model are filtered in the database (search_public_catalog_parts) so the
     // limit applies to matching parts. Filtering on the device after a limit=100 fetch hid
@@ -344,7 +350,9 @@ export class BackendCatalogService implements ICatalogService {
         );
       }
 
-      const rows: PublicCatalogPartRow[] = await response.json();
+      const fetchedRows: PublicCatalogPartRow[] = await response.json();
+      const hasMore = fetchedRows.length > SEARCH_PAGE_SIZE;
+      const rows = hasMore ? fetchedRows.slice(0, SEARCH_PAGE_SIZE) : fetchedRows;
 
       let items: SearchResultItem[] = [];
 
@@ -428,6 +436,7 @@ export class BackendCatalogService implements ICatalogService {
         totalCount: items.length,
         appliedFilters: filters,
         providerErrors: [],
+        nextOffset: hasMore ? offset + SEARCH_PAGE_SIZE : undefined,
       };
     } catch (error: any) {
       if (error?.name === 'AbortError') {

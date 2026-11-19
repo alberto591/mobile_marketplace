@@ -4,13 +4,16 @@
  * Provides secure backend orchestration for Eurodesguace Málaga API:
  * 1. GET ?action=health: Checks live provider health (sanitized, zero secrets).
  * 2. GET ?action=sample-parts: Retrieves a small verified sample (up to 20 parts).
- * 3. POST ?action=sync-batch: Executes an authorized batch synchronization with idempotency.
+ * 3. POST ?action=sync-batch: Fetches one batch (max 50) from the provider and persists it
+ *    through ingest_catalog_batch, resuming from the stored cursor. ?dry_run=1 only inspects.
  * 4. GET ?action=ping: Public heartbeat (does not call the provider).
  *
  * Security: health, sample-parts and sync-batch call the provider API with our key, so
  * they require SYNC_ADMIN_SECRET or the service_role key. Only ping is public.
  * Zero private API keys, tokens or internal hashes are exposed to client callers.
  */
+
+import { normalizeEurodesguaceBatch } from '../_shared/eurodesguace-normalize.ts';
 
 // In Deno / Supabase Edge Functions environment:
 declare const Deno: {
@@ -26,6 +29,7 @@ interface EnvConfig {
   supabaseUrl?: string;
   supabaseServiceRoleKey?: string;
   adminSecret?: string;
+  integrationId: string;
 }
 
 function getEnvConfig(): EnvConfig {
@@ -45,7 +49,10 @@ function getEnvConfig(): EnvConfig {
     throw new Error('EURODESGUACE_API_KEY is not configured in backend environment');
   }
 
-  return { baseUrl, apiKey, supabaseUrl, supabaseServiceRoleKey, adminSecret };
+  // source_integrations row seeded for Eurodesguace Málaga (migration 20261019000001)
+  const integrationId = get('EURODESGUACE_INTEGRATION_ID') || '00000000-0000-4000-a000-000000000201';
+
+  return { baseUrl, apiKey, supabaseUrl, supabaseServiceRoleKey, adminSecret, integrationId };
 }
 
 export async function handler(req: Request): Promise<Response> {
@@ -208,16 +215,54 @@ export async function handler(req: Request): Promise<Response> {
       const MAX_BATCH_LIMIT = 50;
       const rawLimit = parseInt(url.searchParams.get('limit') || '50', 10);
       const limit = Math.min(Math.max(1, isNaN(rawLimit) ? 50 : rawLimit), MAX_BATCH_LIMIT);
-      const cursor = url.searchParams.get('cursor') || undefined;
       const updatedSince = url.searchParams.get('updated_since') || undefined;
+      const dryRun = url.searchParams.get('dry_run') === '1';
+      const startedAt = new Date().toISOString();
 
+      // Persistence target (PostgREST with the service role). Without it the batch is only
+      // inspected, and the response says so explicitly: persisted=false.
+      const canPersist = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey) && !dryRun;
+      const restBase = `${(config.supabaseUrl || '').replace(/\/+$/, '')}/rest/v1`;
+      const restHeaders = {
+        apikey: config.supabaseServiceRoleKey || '',
+        Authorization: `Bearer ${config.supabaseServiceRoleKey || ''}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
+
+      // Cursor: explicit ?cursor wins; otherwise resume where the last persisted batch stopped.
+      // A NULL stored cursor means "start a new full pass over the catalog".
+      let cursor = url.searchParams.get('cursor') || undefined;
+      let resumedFromCheckpoint = false;
+      if (!cursor && canPersist && !updatedSince) {
+        const checkpointRes = await fetch(
+          `${restBase}/source_integrations?id=eq.${config.integrationId}&select=last_cursor`,
+          { headers: restHeaders }
+        );
+        if (!checkpointRes.ok) {
+          return new Response(
+            JSON.stringify({ success: false, error: 'checkpoint_read_failed', httpStatus: checkpointRes.status }),
+            { status: 502, headers: corsHeaders }
+          );
+        }
+        const rows = await checkpointRes.json();
+        if (!Array.isArray(rows) || rows.length === 0) {
+          return new Response(
+            JSON.stringify({ success: false, error: 'integration_not_found', integrationId: config.integrationId }),
+            { status: 500, headers: corsHeaders }
+          );
+        }
+        cursor = rows[0].last_cursor || undefined;
+        resumedFromCheckpoint = Boolean(cursor);
+      }
+
+      // include_deleted is always sent so parts sold or withdrawn by the scrapyard are
+      // taken off the catalog. Query parameters must not change while a cursor is in use.
       const queryParams = new URLSearchParams();
       queryParams.set('limit', String(limit));
+      queryParams.set('include_deleted', '1');
       if (cursor) queryParams.set('cursor', cursor);
-      if (updatedSince) {
-        queryParams.set('updated_since', updatedSince);
-        queryParams.set('include_deleted', '1');
-      }
+      if (updatedSince) queryParams.set('updated_since', updatedSince);
 
       const resp = await fetch(`${config.baseUrl}/parts?${queryParams.toString()}`, {
         headers: {
@@ -228,6 +273,22 @@ export async function handler(req: Request): Promise<Response> {
       });
 
       if (!resp.ok) {
+        // A stored cursor the provider no longer accepts (expired, or created with other
+        // parameters) would block every future run: drop it so the next run starts a new pass.
+        let cursorReset = false;
+        if (resumedFromCheckpoint && (resp.status === 400 || resp.status === 404 || resp.status === 422)) {
+          const resetRes = await fetch(`${restBase}/source_integrations?id=eq.${config.integrationId}`, {
+            method: 'PATCH',
+            headers: restHeaders,
+            body: JSON.stringify({
+              last_cursor: null,
+              last_attempt_at: startedAt,
+              sync_status: 'FAILED',
+              error_summary: `Cursor rechazado por el proveedor (HTTP ${resp.status}); se reinicia la pasada.`,
+            }),
+          });
+          cursorReset = resetRes.ok;
+        }
         const retryAfter = resp.headers.get('retry-after');
         return new Response(
           JSON.stringify({
@@ -235,6 +296,7 @@ export async function handler(req: Request): Promise<Response> {
             httpStatus: resp.status,
             error: resp.status === 429 ? 'rate_limited' : 'provider_error',
             retryAfterSeconds: retryAfter ? parseInt(retryAfter, 10) : undefined,
+            cursorReset,
           }),
           { status: resp.status, headers: corsHeaders }
         );
@@ -243,40 +305,61 @@ export async function handler(req: Request): Promise<Response> {
       const body = await resp.json();
       const rawParts = body.data || [];
       const meta = body.meta || {};
+      const nextCursor: string | null = meta.next_cursor ? String(meta.next_cursor) : null;
 
-      let validCount = 0;
-      let deactivatedCount = 0;
-      const itemsToUpsert = [];
+      const parts = normalizeEurodesguaceBatch(rawParts);
+      const deactivatedCount = parts.filter((p) => p.isDeleted).length;
 
-      for (const p of rawParts) {
-        if (!p.refid) continue;
-        const isDeleted = Boolean(p.deleted_at);
-        if (isDeleted) deactivatedCount++;
-        validCount++;
-
-        itemsToUpsert.push({
-          externalPartId: String(p.refid),
-          title: p.articulo || `${p.familia} ${p.marca} ${p.modelo}`,
-          category: p.familia,
-          make: p.marca,
-          model: p.modelo,
-          codvehiculo: p.codvehiculo || null,
-          refvisual: p.refvisual || null,
-          priceText: p.precio,
-          isDeleted,
+      let persistence: Record<string, unknown> | null = null;
+      if (canPersist) {
+        const ingestRes = await fetch(`${restBase}/rpc/ingest_catalog_batch`, {
+          method: 'POST',
+          headers: restHeaders,
+          body: JSON.stringify({
+            p_integration_id: config.integrationId,
+            p_parts: parts,
+            p_next_cursor: nextCursor,
+            p_started_at: startedAt,
+          }),
         });
+        if (!ingestRes.ok) {
+          const detail = await ingestRes.text();
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'persistence_failed',
+              httpStatus: ingestRes.status,
+              message: 'El lote se descargó del proveedor pero no se pudo guardar; el cursor no ha avanzado.',
+              detail: detail.slice(0, 300),
+            }),
+            { status: 502, headers: corsHeaders }
+          );
+        }
+        persistence = await ingestRes.json();
       }
 
       return new Response(
         JSON.stringify({
           success: true,
+          persisted: canPersist,
+          notPersistedReason: canPersist
+            ? undefined
+            : dryRun
+            ? 'dry_run'
+            : 'SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY no configurados',
           batchProcessed: rawParts.length,
-          validItems: validCount,
+          validItems: parts.length,
           deactivatedItems: deactivatedCount,
-          nextCursor: meta.next_cursor || null,
-          hasMore: Boolean(meta.next_cursor),
+          created: persistence?.created,
+          updated: persistence?.updated,
+          needsPriceConfirmation: persistence?.needsPriceConfirmation,
+          nextCursor,
+          hasMore: Boolean(nextCursor),
+          catalogPassComplete: !nextCursor,
           totalCatalogStock: meta.total,
-          summary: `Lote de ${validCount} piezas procesado con éxito para Eurodesguace Málaga.`,
+          summary: canPersist
+            ? `Lote de ${parts.length} piezas guardado en el catálogo de Eurodesguace Málaga.`
+            : `Lote de ${parts.length} piezas inspeccionado sin guardar.`,
         }),
         { status: 200, headers: corsHeaders }
       );

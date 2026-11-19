@@ -18,6 +18,8 @@ export interface SearchFilters {
   readonly maxPriceCents?: number;
   readonly onlyAvailable?: boolean;
   readonly sortBy?: SortOrderOption;
+  /** Pagination: position returned as `nextOffset` by the previous page. */
+  readonly offset?: number;
 }
 
 export interface SearchResultItem {
@@ -32,6 +34,8 @@ export interface CatalogSearchResult {
   readonly totalCount: number;
   readonly appliedFilters: SearchFilters;
   readonly providerErrors: readonly { readonly providerId: string; readonly message: string }[];
+  /** Present when more results exist: pass it as `offset` to get the next page. */
+  readonly nextOffset?: number;
 }
 
 export interface PartDetailResult {
