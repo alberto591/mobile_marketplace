@@ -55,7 +55,7 @@ export function VisualCategoryGrid({ onSelectCategory }: VisualCategoryGridProps
     router.push({
       pathname: '/results',
       params: {
-        categoryIds: category.categoryIds.join(','),
+        categoryGroupId: category.id,
         categoryLabel: category.label,
         fromCategoryGrid: 'true',
       },

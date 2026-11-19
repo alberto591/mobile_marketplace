@@ -17,6 +17,7 @@ import type {
   SortOrderOption,
 } from '../services/catalog-service.interface';
 import { catalogService } from '../services/catalog-service.factory';
+import { resolveCategoryIdsFromRouteParams } from '../services/category-groups.config';
 import { analyticsService } from '../services/analytics.service';
 import { useGarage } from '../services/garage-context';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
@@ -28,6 +29,7 @@ export default function ResultsScreen() {
     vehicleMake?: string;
     vehicleModel?: string;
     vehicleYear?: string;
+    categoryGroupId?: string;
     categoryIds?: string;
     categoryLabel?: string;
     fromCategoryGrid?: string;
@@ -77,7 +79,10 @@ export default function ResultsScreen() {
         vehicleMake: activeVehicleMake,
         vehicleModel: activeVehicleModel,
         vehicleYear: activeVehicleYear,
-        categoryIds: params.categoryIds ? params.categoryIds.split(',') : undefined,
+        categoryIds: resolveCategoryIdsFromRouteParams({
+          categoryGroupId: params.categoryGroupId,
+          categoryIds: params.categoryIds,
+        }),
         vendorId: selectedVendor,
         onlyAvailable,
         sortBy,
@@ -123,6 +128,7 @@ export default function ResultsScreen() {
     activeVehicleMake,
     activeVehicleModel,
     activeVehicleYear,
+    params.categoryGroupId,
     params.categoryIds,
     selectedVendor,
     onlyAvailable,

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { MockCatalogService } from '../services/mock-catalog.service';
 import { BackendCatalogService } from '../services/backend-catalog.service';
-import { CANONICAL_CATEGORY_GROUPS } from '../services/category-groups.config';
+import {
+  CANONICAL_CATEGORY_GROUPS,
+  resolveCategoryIdsFromRouteParams,
+} from '../services/category-groups.config';
 
 describe('Feature 1: Visual Category Grid & Category Grouping', () => {
   it('defines the 5 standard automotive category groups with icons and category mappings', () => {
@@ -84,5 +87,21 @@ describe('Feature 1: Visual Category Grid & Category Grouping', () => {
 
     // Motor had 0 matching items, so it should be suppressed
     expect(motorGroup).toBeUndefined();
+  });
+
+  it('resolves categoryIds from ASCII categoryGroupId slug without corrupting slashes', () => {
+    expect(
+      resolveCategoryIdsFromRouteParams({ categoryGroupId: 'frenos-suspension' })
+    ).toEqual(['SUSPENSIÓN / FRENOS']);
+
+    expect(
+      resolveCategoryIdsFromRouteParams({ categoryGroupId: 'mecanica-motor' })
+    ).toEqual(['MOTOR / ADMISIÓN / ESCAPE', 'CAMBIO / EMBRAGUE', 'DIRECCIÓN / TRANSMISIÓN']);
+  });
+
+  it('decodes percent-encoded slashes (%2F) when legacy categoryIds param is passed', () => {
+    expect(
+      resolveCategoryIdsFromRouteParams({ categoryIds: 'SUSPENSI%C3%93N%20%2F%20FRENOS' })
+    ).toEqual(['SUSPENSIÓN / FRENOS']);
   });
 });
