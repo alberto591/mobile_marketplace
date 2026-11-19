@@ -8,6 +8,7 @@ import {
   type EmailSender,
   type OrderEmailConfig,
 } from './order-emails.ts';
+import { notifyBuyerShippedPush, type PushSender } from './expo-push.ts';
 
 // deno-lint-ignore no-explicit-any
 type SupabaseLike = any;
@@ -173,6 +174,7 @@ export async function handleVendorOrderRequest(params: {
   payload: unknown;
   emailConfig: OrderEmailConfig;
   sender?: EmailSender;
+  pushSender?: PushSender;
 }): Promise<VendorOrderResult> {
   const { supabase, emailConfig } = params;
   // deno-lint-ignore no-explicit-any
@@ -185,6 +187,7 @@ export async function handleVendorOrderRequest(params: {
   if (!action) return fail(400, 'INVALID_ACTION', 'Acción no reconocida.');
 
   let shipmentEmail: string | undefined;
+  let shipmentPush: string | undefined;
 
   if (action === 'ship') {
     const carrier = typeof payload.carrier === 'string' ? payload.carrier.trim() : '';
@@ -218,13 +221,18 @@ export async function handleVendorOrderRequest(params: {
       }
     }
 
-    // The buyer is emailed on the first shipment only; later tracking corrections just update the page.
+    // The buyer is emailed and push-notified on the first shipment only; later tracking corrections just update the page.
     if (data.firstShipment) {
       shipmentEmail = await notifyBuyerShipped({
         supabase,
         suborderId: data.suborderId,
         config: emailConfig,
         sender: params.sender,
+      });
+      shipmentPush = await notifyBuyerShippedPush({
+        supabase,
+        suborderId: data.suborderId,
+        pushSender: params.pushSender,
       });
     }
   }
@@ -235,6 +243,11 @@ export async function handleVendorOrderRequest(params: {
 
   return {
     status: 200,
-    body: { success: true, order, ...(shipmentEmail ? { buyerNotification: shipmentEmail } : {}) },
+    body: {
+      success: true,
+      order,
+      ...(shipmentEmail ? { buyerNotification: shipmentEmail } : {}),
+      ...(shipmentPush ? { buyerPushNotification: shipmentPush } : {}),
+    },
   };
 }

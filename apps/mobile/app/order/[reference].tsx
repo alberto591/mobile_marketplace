@@ -9,10 +9,16 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { OrderIssueModal } from '../../components/OrderIssueModal';
 import { useCart } from '../../services/cart-context';
 import { AsyncStorageCartStorage } from '../../services/cart-storage';
 import { extractOrderToken } from '../../services/order-link';
 import { listOrderHistory } from '../../services/pending-orders.service';
+import {
+  enableShipmentPushForOrder,
+  type PushRegistrationStatus,
+} from '../../services/push-notifications.service';
 import type { OrderDetail } from '../../services/checkout.service';
 import { checkoutService } from '../../services/checkout.service';
 import { borderRadius, colors, spacing } from '../../theme/index';
@@ -24,6 +30,9 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [issueModalVisible, setIssueModalVisible] = useState(false);
+  const [pushStatus, setPushStatus] = useState<PushRegistrationStatus | null>(null);
+  const [pushLoading, setPushLoading] = useState(false);
 
   const reference = params.reference;
   const orderedPartIds = params.orderedPartIds;
@@ -295,6 +304,76 @@ export default function OrderDetailScreen() {
         </View>
       ))}
 
+      {/* Shipment push notification opt-in (native app builds) */}
+      {Platform.OS !== 'web' &&
+        token &&
+        order.status === 'PAID' &&
+        order.suborders.some((s) => s.fulfillmentStatus !== 'SHIPPED' && s.fulfillmentStatus !== 'DELIVERED') && (
+          <View style={styles.supportCard}>
+            <View style={styles.supportHeaderRow}>
+              <Ionicons name="notifications-outline" size={18} color={colors.accent} />
+              <Text style={styles.supportTitle}>Aviso de envío en tu móvil</Text>
+            </View>
+            <Text style={styles.supportBody}>
+              Recibe una notificación automática en cuanto el desguace marque el envío con tu número de seguimiento.
+            </Text>
+            {pushStatus === 'REGISTERED' ? (
+              <Text style={styles.pushSuccessText}>
+                Notificación activada: te avisaremos cuando salga el paquete.
+              </Text>
+            ) : pushStatus === 'PERMISSION_DENIED' ? (
+              <Text style={styles.pushWarnText}>
+                Permiso de notificaciones denegado. Actívalo en Ajustes del teléfono si quieres recibir el aviso.
+              </Text>
+            ) : pushStatus === 'UNSUPPORTED_ENVIRONMENT' ? (
+              <Text style={styles.pushMutedText}>
+                Las notificaciones push remotas estarán activas en la versión instalada desde App Store / TestFlight.
+              </Text>
+            ) : (
+              <Pressable
+                style={styles.pushBtn}
+                disabled={pushLoading}
+                onPress={async () => {
+                  setPushLoading(true);
+                  const res = await enableShipmentPushForOrder(token);
+                  setPushStatus(res);
+                  setPushLoading(false);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Activar notificación push de envío"
+              >
+                {pushLoading ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <Text style={styles.pushBtnText}>Activar aviso push de envío</Text>
+                )}
+              </Pressable>
+            )}
+          </View>
+        )}
+
+      {/* Report problem / Request return */}
+      {token && (order.status === 'PAID' || order.status === 'REFUNDED' || order.status === 'PARTIALLY_PAID') && (
+        <View style={styles.supportCard}>
+          <View style={styles.supportHeaderRow}>
+            <Ionicons name="help-circle-outline" size={18} color={colors.textPrimary} />
+            <Text style={styles.supportTitle}>¿Algún problema con tu pedido?</Text>
+          </View>
+          <Text style={styles.supportBody}>
+            Si la pieza llega dañada, no es compatible o quieres ejercer el desistimiento de 14 días, abre una incidencia con los datos del pedido ya adjuntos.
+          </Text>
+          <Pressable
+            style={styles.issueBtn}
+            onPress={() => setIssueModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Reportar problema o solicitar devolución"
+          >
+            <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
+            <Text style={styles.issueBtnText}>Reportar problema / Solicitar devolución</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* Actions */}
       <View style={styles.buttonGroup}>
         <Pressable style={styles.primaryBtn} onPress={() => router.replace('/')}>
@@ -304,6 +383,15 @@ export default function OrderDetailScreen() {
           <Text style={styles.secondaryBtnText}>Ver carrito</Text>
         </Pressable>
       </View>
+
+      {token && (
+        <OrderIssueModal
+          visible={issueModalVisible}
+          orderReference={order.orderReference}
+          accessToken={token}
+          onClose={() => setIssueModalVisible(false)}
+        />
+      )}
     </ScrollView>
   );
 }
@@ -364,6 +452,72 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.md,
     marginBottom: spacing.md,
+  },
+  supportCard: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.xs + 2,
+  },
+  supportHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs + 2,
+  },
+  supportTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  supportBody: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  pushBtn: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: borderRadius.md,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  pushBtnText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pushSuccessText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#16A34A',
+  },
+  pushWarnText: {
+    fontSize: 12,
+    color: colors.warning,
+  },
+  pushMutedText: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  issueBtn: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: borderRadius.md,
+    paddingVertical: 11,
+  },
+  issueBtnText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '700',
   },
   headerRow: {
     flexDirection: 'row',

@@ -53,3 +53,4 @@ jobs:
           supabase functions deploy create-payment-intent --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
           supabase functions deploy vendor-order --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+          supabase functions deploy report-order-issue --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt

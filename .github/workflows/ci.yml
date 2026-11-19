@@ -53,5 +53,6 @@ jobs:
             supabase/functions/stripe-webhook/index.ts \
             supabase/functions/eurodesguace-sync/index.ts \
             supabase/functions/vendor-order/index.ts \
+            supabase/functions/report-order-issue/index.ts \
             supabase/functions/submit-inquiry/index.ts \
             supabase/functions/image-proxy/index.ts
