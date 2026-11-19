@@ -2,8 +2,10 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -20,6 +22,7 @@ import { catalogService } from '../services/catalog-service.factory';
 import { resolveCategoryIdsFromRouteParams } from '../services/category-groups.config';
 import { analyticsService } from '../services/analytics.service';
 import { useGarage } from '../services/garage-context';
+import { openMissingPartWhatsApp } from '../services/whatsapp-contact.service';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 
 export default function ResultsScreen() {
@@ -61,6 +64,32 @@ export default function ResultsScreen() {
   const [sortBy, setSortBy] = useState<SortOrderOption>('relevance');
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [primaryVendor, setPrimaryVendor] = useState<{
+    readonly tradeName: string;
+    readonly publicPhone?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    catalogService
+      .getVendors()
+      .then((vendors) => {
+        if (!mounted || vendors.length === 0) return;
+        const withPhone = vendors.find((v) => v.contact?.publicPhone) ?? vendors[0];
+        if (withPhone) {
+          setPrimaryVendor({
+            tradeName: withPhone.tradeName,
+            publicPhone: withPhone.contact?.publicPhone,
+          });
+        }
+      })
+      .catch(() => {
+        // Non-fatal: fallback UI handles missing phone gracefully.
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
   // Filters of the search on screen, and a counter that invalidates "load more"
   // responses belonging to a search the user has already replaced.
   const activeFiltersRef = useRef<SearchFilters | null>(null);
@@ -362,7 +391,7 @@ export default function ResultsScreen() {
           }
         />
       ) : (
-        <View style={styles.emptyContainer}>
+        <ScrollView contentContainerStyle={styles.emptyContainer}>
           <EmptyState
             title="No se encontraron piezas"
             message={
@@ -393,7 +422,46 @@ export default function ResultsScreen() {
               }
             }}
           />
-        </View>
+
+          {/* Lead capture CTA when 0 results */}
+          <View style={styles.missingLeadCard}>
+            <Text style={styles.missingLeadTitle}>¿No encuentras tu pieza? Te la buscamos</Text>
+            <Text style={styles.missingLeadBody}>
+              Muchos recambios están recién desmontados o pendientes de catalogar. Envíanos tu búsqueda por WhatsApp y el desguace comprueba stock físico en menos de 24 h.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.missingLeadBtn,
+                pressed && styles.missingLeadBtnPressed,
+              ]}
+              onPress={() => {
+                void openMissingPartWhatsApp({
+                  query: params.query,
+                  oemReference: params.oemReference,
+                  categoryLabel: params.categoryLabel,
+                  vehicleMake: activeVehicleMake,
+                  vehicleModel: activeVehicleModel,
+                  vehicleYear: activeVehicleYear,
+                  vendorTradeName: primaryVendor?.tradeName,
+                  publicPhone: primaryVendor?.publicPhone,
+                  onUnavailable: (phone) => {
+                    Alert.alert(
+                      'WhatsApp no disponible',
+                      phone
+                        ? `No se pudo abrir WhatsApp. Puedes llamar o escribir directamente al desguace en el ${phone}.`
+                        : 'No se pudo cargar el teléfono del desguace en este momento. Inténtalo de nuevo en unos segundos.'
+                    );
+                  },
+                });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Solicitar esta pieza por WhatsApp al desguace"
+            >
+              <Ionicons name="logo-whatsapp" size={18} color={colors.textInverse} />
+              <Text style={styles.missingLeadBtnText}>Pedir presupuesto por WhatsApp</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       )}
     </View>
   );
@@ -425,6 +493,44 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginBottom: spacing.sm,
     textAlign: 'center',
+  },
+  missingLeadCard: {
+    marginTop: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: '#C6E7D1',
+    gap: spacing.sm,
+  },
+  missingLeadTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  missingLeadBody: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
+  missingLeadBtn: {
+    marginTop: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs + 2,
+    backgroundColor: colors.whatsapp,
+    paddingVertical: spacing.sm + 4,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+  },
+  missingLeadBtnPressed: {
+    opacity: 0.85,
+  },
+  missingLeadBtnText: {
+    color: colors.textInverse,
+    fontSize: 14,
+    fontWeight: '700',
   },
   screen: {
     flex: 1,

@@ -16,6 +16,7 @@ import { CatTrustModal } from '../../components/CatTrustModal';
 import { CompatibilityBadge } from '../../components/CompatibilityBadge';
 import { EmptyState } from '../../components/EmptyState';
 import { InquiryModal } from '../../components/InquiryModal';
+import { PhotoZoomModal } from '../../components/PhotoZoomModal';
 import { SavingsAndCircularCard } from '../../components/SavingsAndCircularCard';
 import {
   estimateAdemeEnvironmentalImpact,
@@ -43,6 +44,7 @@ export default function PartDetailScreen() {
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [inquiryModalVisible, setInquiryModalVisible] = useState(false);
   const [catModalVisible, setCatModalVisible] = useState(false);
+  const [photoZoomVisible, setPhotoZoomVisible] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -214,14 +216,24 @@ export default function PartDetailScreen() {
         {/* Photo Gallery */}
         <View style={styles.galleryContainer}>
           {currentImage && !failedImages.has(currentImage.id) ? (
-            <Image
-              source={{ uri: currentImage.url }}
-              style={styles.mainImage}
-              resizeMode="cover"
-              onError={() => {
-                setFailedImages((prev) => new Set(prev).add(currentImage.id));
-              }}
-            />
+            <Pressable
+              onPress={() => setPhotoZoomVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Ampliar fotografía de la pieza a pantalla completa"
+            >
+              <Image
+                source={{ uri: currentImage.url }}
+                style={styles.mainImage}
+                resizeMode="cover"
+                onError={() => {
+                  setFailedImages((prev) => new Set(prev).add(currentImage.id));
+                }}
+              />
+              <View style={styles.zoomHintBadge}>
+                <Ionicons name="expand-outline" size={14} color={colors.textInverse} />
+                <Text style={styles.zoomHintText}>Ampliar</Text>
+              </View>
+            </Pressable>
           ) : (
             <View style={styles.mainImagePlaceholder}>
               <Text style={styles.noPhotoText}>[Fotografía no disponible]</Text>
@@ -655,6 +667,14 @@ export default function PartDetailScreen() {
         vendor={vendor}
         onClose={() => setCatModalVisible(false)}
       />
+
+      {/* Fullscreen Photo Zoom Modal */}
+      <PhotoZoomModal
+        visible={photoZoomVisible}
+        images={images.filter((img) => !failedImages.has(img.id))}
+        initialIndex={selectedImageIndex}
+        onClose={() => setPhotoZoomVisible(false)}
+      />
     </View>
   );
 }
@@ -666,6 +686,23 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 110, // Avoid bottom floating bar overlap
+  },
+  zoomHintBadge: {
+    position: 'absolute',
+    right: spacing.md,
+    bottom: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(11, 12, 15, 0.72)',
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+  },
+  zoomHintText: {
+    color: colors.textInverse,
+    fontSize: 12,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,

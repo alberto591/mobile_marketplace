@@ -157,3 +157,89 @@ export async function openWhatsAppContact(options: OpenWhatsAppOptions): Promise
     return false;
   }
 }
+
+export interface MissingPartWhatsAppOptions {
+  readonly query?: string;
+  readonly oemReference?: string;
+  readonly categoryLabel?: string;
+  readonly vehicleMake?: string;
+  readonly vehicleModel?: string;
+  readonly vehicleYear?: number;
+  readonly vendorTradeName?: string;
+  readonly publicPhone?: string | null;
+  readonly onUnavailable?: (phone: string | null) => void;
+  readonly urlOpener?: UrlOpener;
+}
+
+/**
+ * Generates honest Spanish lead-capture copy when a catalog search returns 0 results.
+ */
+export function buildMissingPartWhatsAppMessage(
+  options: Omit<MissingPartWhatsAppOptions, 'publicPhone' | 'onUnavailable' | 'urlOpener'>
+): string {
+  const greeting = options.vendorTradeName ? `Hola ${options.vendorTradeName}` : 'Hola';
+
+  const partTerms: string[] = [];
+  if (options.query?.trim()) {
+    partTerms.push(`"${options.query.trim()}"`);
+  } else if (options.categoryLabel?.trim()) {
+    partTerms.push(`recambio de ${options.categoryLabel.trim()}`);
+  }
+  if (options.oemReference?.trim()) {
+    partTerms.push(`ref. OEM ${options.oemReference.trim()}`);
+  }
+
+  const partPhrase =
+    partTerms.length > 0 ? partTerms.join(' · ') : 'un recambio de segunda mano';
+
+  const vehicleParts = [
+    options.vehicleMake?.trim(),
+    options.vehicleModel?.trim(),
+    options.vehicleYear ? `(${options.vehicleYear})` : undefined,
+  ].filter(Boolean);
+
+  const vehicleClause = vehicleParts.length > 0 ? ` para ${vehicleParts.join(' ')}` : '';
+
+  return `${greeting}, he buscado en BuscaPiezas 24H ${partPhrase}${vehicleClause} y no aparecía en el catálogo online. ¿Podéis comprobar si lo tenéis disponible o en despiece y darme presupuesto? Muchas gracias.`;
+}
+
+/**
+ * Opens WhatsApp prefilled with the user's 0-result search criteria so the CAT can quote it.
+ */
+export async function openMissingPartWhatsApp(
+  options: MissingPartWhatsAppOptions
+): Promise<boolean> {
+  const normalizedPhone = normalizePhoneNumberForWhatsApp(options.publicPhone);
+  if (!normalizedPhone) {
+    options.onUnavailable?.(options.publicPhone ?? null);
+    return false;
+  }
+
+  const message = buildMissingPartWhatsAppMessage(options);
+  const encodedMessage = encodeURIComponent(message);
+  const nativeUrl = `whatsapp://send?phone=${normalizedPhone}&text=${encodedMessage}`;
+  const webUrl = `https://wa.me/${normalizedPhone}?text=${encodedMessage}`;
+
+  try {
+    const opener = options.urlOpener ?? Linking;
+    if (!opener || typeof opener.openURL !== 'function') {
+      options.onUnavailable?.(options.publicPhone ?? null);
+      return false;
+    }
+
+    const canOpenNative = opener.canOpenURL
+      ? await opener.canOpenURL(nativeUrl).catch(() => false)
+      : false;
+
+    if (canOpenNative) {
+      await opener.openURL(nativeUrl);
+      return true;
+    }
+
+    await opener.openURL(webUrl);
+    return true;
+  } catch {
+    options.onUnavailable?.(options.publicPhone ?? null);
+    return false;
+  }
+}

@@ -1,6 +1,6 @@
 import { LegalLinks } from '../components/LegalLinks';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -16,8 +16,21 @@ import { Ionicons } from '@expo/vector-icons';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 import { GarageSelectorCard } from '../components/GarageSelectorCard';
 import { VisualCategoryGrid } from '../components/VisualCategoryGrid';
+import { catalogService } from '../services/catalog-service.factory';
+import type { AvailableVehicleMake } from '../services/catalog-service.interface';
 import { useFavourites } from '../services/favourites-context';
 import { useGarage } from '../services/garage-context';
+import {
+  clearRecentSearches,
+  formatRecentSearchLabel,
+  loadRecentSearches,
+  saveRecentSearch,
+  type RecentSearchEntry,
+} from '../services/recent-searches.service';
+import {
+  filterMakeSuggestions,
+  filterModelSuggestions,
+} from '../services/vehicle-suggestions.service';
 
 export default function HomeScreen() {
   const { savedCount } = useFavourites();
@@ -27,6 +40,43 @@ export default function HomeScreen() {
   const [vehicleMake, setVehicleMake] = useState('');
   const [vehicleModel, setVehicleModel] = useState('');
   const [vehicleYear, setVehicleYear] = useState('');
+  const [availableVehicles, setAvailableVehicles] = useState<readonly AvailableVehicleMake[]>([]);
+  const [focusedVehicleField, setFocusedVehicleField] = useState<'make' | 'model' | null>(null);
+  const [recentSearches, setRecentSearches] = useState<readonly RecentSearchEntry[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    catalogService
+      .getAvailableVehicles()
+      .then((list) => {
+        if (mounted) setAvailableVehicles(list);
+      })
+      .catch(() => {
+        // Non-fatal: manual text entry still works if catalog vehicles fail to load.
+      });
+    loadRecentSearches()
+      .then((items) => {
+        if (mounted) setRecentSearches(items);
+      })
+      .catch(() => {
+        // Non-fatal
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const makeSuggestions = useMemo(() => {
+    if (focusedVehicleField !== 'make') return [];
+    return filterMakeSuggestions(availableVehicles, vehicleMake, 6);
+  }, [availableVehicles, vehicleMake, focusedVehicleField]);
+
+  const modelSuggestions = useMemo(() => {
+    if (focusedVehicleField !== 'model') return [];
+    const activeMake = vehicleMake.trim() || selectedVehicle?.make || '';
+    if (!activeMake) return [];
+    return filterModelSuggestions(availableVehicles, activeMake, vehicleModel, 6);
+  }, [availableVehicles, vehicleMake, selectedVehicle?.make, vehicleModel, focusedVehicleField]);
 
   const quickSearches = [
     { label: 'Faros Golf V', q: 'Faro', make: 'Volkswagen', model: 'Golf' },
@@ -54,16 +104,39 @@ export default function HomeScreen() {
       return;
     }
 
+    const searchParams = {
+      query: query.trim() || undefined,
+      oemReference: oemReference.trim() || undefined,
+      vehicleMake: finalMake || undefined,
+      vehicleModel: finalModel || undefined,
+      vehicleYear: finalYear || undefined,
+    };
+
+    void saveRecentSearch(searchParams).then((updated) => setRecentSearches(updated));
+
+    router.push({
+      pathname: '/results',
+      params: searchParams,
+    });
+  };
+
+  const handleRecentSearchPress = (entry: RecentSearchEntry) => {
+    void saveRecentSearch(entry).then((updated) => setRecentSearches(updated));
     router.push({
       pathname: '/results',
       params: {
-        query: query.trim() || undefined,
-        oemReference: oemReference.trim() || undefined,
-        vehicleMake: finalMake || undefined,
-        vehicleModel: finalModel || undefined,
-        vehicleYear: finalYear || undefined,
+        query: entry.query,
+        oemReference: entry.oemReference,
+        vehicleMake: entry.vehicleMake,
+        vehicleModel: entry.vehicleModel,
+        vehicleYear: entry.vehicleYear,
       },
     });
+  };
+
+  const handleClearRecentSearches = () => {
+    setRecentSearches([]);
+    void clearRecentSearches();
   };
 
   const handleQuickSearch = (item: (typeof quickSearches)[0]) => {
@@ -162,6 +235,7 @@ export default function HomeScreen() {
                   placeholder="Ej. SEAT, VW"
                   placeholderTextColor={colors.textMuted}
                   value={vehicleMake}
+                  onFocus={() => setFocusedVehicleField('make')}
                   onChangeText={setVehicleMake}
                 />
               </View>
@@ -172,10 +246,56 @@ export default function HomeScreen() {
                   placeholder="Ej. León, Golf V"
                   placeholderTextColor={colors.textMuted}
                   value={vehicleModel}
+                  onFocus={() => setFocusedVehicleField('model')}
                   onChangeText={setVehicleModel}
                 />
               </View>
             </View>
+
+            {makeSuggestions.length > 0 && (
+              <View style={styles.suggestionsBox}>
+                <Text style={styles.suggestionsLabel}>Marcas en catálogo:</Text>
+                <View style={styles.suggestionsRow}>
+                  {makeSuggestions.map((make) => (
+                    <Pressable
+                      key={make}
+                      style={styles.suggestionChip}
+                      onPress={() => {
+                        setVehicleMake(make);
+                        setVehicleModel('');
+                        setFocusedVehicleField('model');
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Seleccionar marca ${make}`}
+                    >
+                      <Text style={styles.suggestionChipText}>{make}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {modelSuggestions.length > 0 && (
+              <View style={styles.suggestionsBox}>
+                <Text style={styles.suggestionsLabel}>Modelos disponibles:</Text>
+                <View style={styles.suggestionsRow}>
+                  {modelSuggestions.map((model) => (
+                    <Pressable
+                      key={model}
+                      style={styles.suggestionChip}
+                      onPress={() => {
+                        setVehicleModel(model);
+                        setFocusedVehicleField(null);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Seleccionar modelo ${model}`}
+                    >
+                      <Text style={styles.suggestionChipText}>{model}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
 
             <View style={styles.singleCol}>
               <Text style={styles.subLabel}>Año de matriculación</Text>
@@ -205,6 +325,37 @@ export default function HomeScreen() {
 
         {/* Visual Category Grid */}
         <VisualCategoryGrid />
+
+        {/* Recent Searches */}
+        {recentSearches.length > 0 && (
+          <View style={styles.quickSection}>
+            <View style={styles.recentHeaderRow}>
+              <Text style={styles.quickTitle}>Búsquedas recientes</Text>
+              <Pressable
+                onPress={handleClearRecentSearches}
+                accessibilityRole="button"
+                accessibilityLabel="Borrar búsquedas recientes"
+              >
+                <Text style={styles.recentClearText}>Limpiar</Text>
+              </Pressable>
+            </View>
+            <View style={styles.pillContainer}>
+              {recentSearches.map((item, idx) => (
+                <Pressable
+                  key={`${item.timestamp}-${idx}`}
+                  style={styles.recentPill}
+                  onPress={() => handleRecentSearchPress(item)}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.recentPillText} numberOfLines={1}>
+                    {formatRecentSearchLabel(item)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Quick Searches */}
         <View style={styles.quickSection}>
@@ -441,6 +592,62 @@ const styles = StyleSheet.create({
   },
   pillText: {
     fontSize: 13,
+    fontWeight: '600',
+    color: colors.accent,
+  },
+  recentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  recentClearText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  recentPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    maxWidth: '100%',
+  },
+  recentPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    flexShrink: 1,
+  },
+  suggestionsBox: {
+    marginBottom: spacing.sm,
+    gap: 6,
+  },
+  suggestionsLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  suggestionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  suggestionChip: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: borderRadius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  suggestionChipText: {
+    fontSize: 12,
     fontWeight: '600',
     color: colors.accent,
   },
