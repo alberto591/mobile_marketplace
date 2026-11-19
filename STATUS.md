@@ -128,3 +128,20 @@ vercel deploy --prod --yes --cwd apps/mobile/dist
 2. **Correos en modo real:** configurar en Supabase `RESEND_API_KEY`, `INQUIRY_FROM_EMAIL`, `ORDER_FROM_EMAIL`, `EURODESGUACE_INQUIRY_EMAIL`, `VENDOR_PORTAL_BASE_URL` y activar `ORDER_EMAIL_TEST_MODE=false` cuando se pase a producción comercial.
 3. **Stripe en modo real:** pasar de claves de test a claves live cuando la fiscalidad y la cuenta conectada del desguace estén validadas para cobros reales.
 4. **Segundo proveedor (Car Center / VextCentral):** implementar adaptador en cuanto se reciba la URL base y contrato oficial de la API.
+
+---
+
+## 5. Backlog Post-Confirmación de Lanzamiento
+
+Tareas estratégicas aparcadas hasta confirmar oficialmente el lanzamiento comercial del marketplace:
+
+- [ ] **Unificación de base de datos Supabase con el ecosistema «Montaje Desguaces»:**
+  - **Cuándo ejecutarla:** En cuanto sea oficial el lanzamiento del marketplace (idealmente antes de acumular pedidos reales en producción).
+  - **Objetivo:** Compartir un único proyecto Supabase para todo el ecosistema (stock en tiempo real sin doble venta, reutilización de `vendors`, `parts`, fotos y vehículos donantes, y gestión de pedidos integrada en el panel de Montaje Desguaces).
+  - **Requisitos técnicos obligatorios:**
+    1. Definir qué proyecto Supabase será la base de datos maestra del ecosistema.
+    2. Separar dominios por esquemas PostgreSQL (`catalog`/`public`, `marketplace`, `erp`/`montaje`).
+    3. Mantener RLS estricto: el rol `anon` de la app móvil nunca tendrá acceso al esquema interno de Montaje Desguaces.
+    4. Centralizar las migraciones SQL en un único repositorio dueño para evitar conflictos de historial (`supabase db push`).
+- [ ] **Búsqueda por matrícula española (ApiVehiculos):**
+  - Pendiente de disponer de la API key y endpoint del plan contratado en ApiVehiculos; se integrará detrás de una Edge Function con caché en Supabase por matrícula para no pagar dos veces por la misma consulta.
