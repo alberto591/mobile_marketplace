@@ -5,7 +5,10 @@ import {
   createMoney,
   createMoneyFromDecimal,
   formatMoney,
+  formatMoneyWithVat,
+  grossCentsWithVat,
   InvalidMoneyError,
+  moneyWithVat,
   subtractMoney,
 } from '../src/domain/entities/money.js';
 
@@ -65,5 +68,13 @@ describe('Money Value Object', () => {
     expect(compareMoney(cheaper, expensive)).toBeLessThan(0);
     expect(compareMoney(expensive, cheaper)).toBeGreaterThan(0);
     expect(compareMoney(cheaper, createMoney(5000, 'EUR'))).toBe(0);
+  });
+
+  it('computes and formats B2C gross prices with 21 % Spanish VAT', () => {
+    expect(grossCentsWithVat(10000)).toBe(12100);
+    expect(grossCentsWithVat(4500)).toBe(5445);
+    expect(moneyWithVat(createMoney(10000, 'EUR')).amountInCents).toBe(12100);
+    expect(formatMoneyWithVat(createMoney(10000, 'EUR'))).toBe('121,00 EUR');
+    expect(formatMoneyWithVat(createMoney(4500, 'EUR'))).toBe('54,45 EUR');
   });
 });

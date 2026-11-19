@@ -9,7 +9,7 @@
     "scheme": "recambios",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.marketplace.recambios",
+      "bundleIdentifier": "com.buscapiezas24h.recambios",
       "config": {
         "usesNonExemptEncryption": false
       }
@@ -19,7 +19,7 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#0B0C0F"
       },
-      "package": "com.marketplace.recambios"
+      "package": "com.buscapiezas24h.recambios"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -39,10 +39,21 @@
       [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": "merchant.com.marketplace.recambios",
+          "merchantIdentifier": "merchant.com.buscapiezas24h.recambios",
           "enableGooglePay": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "96e98b7a-6789-438a-b82b-80d07164e645"
+      }
+    },
+    "owner": "albertocalvorivas"
   }
 }

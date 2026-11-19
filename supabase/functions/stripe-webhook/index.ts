@@ -5,6 +5,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 import { sendOpsAlert, sendOrderPaidNotifications } from '../_shared/order-emails.ts';
+import { recordServerEvent } from '../_shared/product-events.ts';
 
 declare const Deno: {
   env: {
@@ -226,7 +227,7 @@ export async function handler(req: Request): Promise<Response> {
         if (pi?.id) {
           const { data: suborder, error: subError } = await supabase
             .from('order_suborders')
-            .select('id, order_id, stripe_account_id, payment_status, total_cents, currency')
+            .select('id, order_id, vendor_id, stripe_account_id, payment_status, total_cents, currency')
             .eq('stripe_payment_intent_id', pi.id)
             .maybeSingle();
 
@@ -238,7 +239,8 @@ export async function handler(req: Request): Promise<Response> {
             processingError = `Conflicto de cuenta conectada: evento de ${event.account} no coincide con el subpedido (${suborder.stripe_account_id})`;
           } else {
             // Idempotent transition: only update if not already SUCCEEDED
-            if (suborder.payment_status !== 'SUCCEEDED') {
+            const wasAlreadySucceeded = suborder.payment_status === 'SUCCEEDED';
+            if (!wasAlreadySucceeded) {
               const { error: subUpdateError } = await supabase
                 .from('order_suborders')
                 .update({
@@ -286,6 +288,19 @@ export async function handler(req: Request): Promise<Response> {
               })
               .eq('id', suborder.order_id);
             if (orderUpdateError) throw new Error(`Error actualizando pedido: ${orderUpdateError.message}`);
+
+            if (!wasAlreadySucceeded) {
+              await recordServerEvent(supabase, {
+                eventName: 'purchase_completed',
+                vendorId: suborder.vendor_id ?? null,
+                orderId: suborder.order_id,
+                amountCents: suborder.total_cents,
+                metadata: {
+                  paymentIntentId: pi.id,
+                  orderStatus: targetStatus,
+                },
+              });
+            }
 
             // Tell the seller to ship and confirm to the buyer. Sent once per suborder
             // (order_notifications); a mail failure is logged and never fails the payment.

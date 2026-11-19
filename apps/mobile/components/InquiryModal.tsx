@@ -1,3 +1,5 @@
+import { router } from 'expo-router';
+import type { Href } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,8 +14,9 @@ import {
   View,
 } from 'react-native';
 import type { Part, SubmitInquiryResponse, Vendor } from '@mobile-marketplace/core';
-import { formatMoney } from '@mobile-marketplace/core';
+import { formatMoneyWithVat } from '@mobile-marketplace/core';
 import { inquiryService } from '../services/inquiry.service';
+import { OPERATOR } from '../content/legal';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 
 function generateClientUuid(): string {
@@ -132,7 +135,7 @@ export function InquiryModal({ visible, part, vendor, onClose }: Props) {
             {/* Part summary */}
             <View style={styles.partSummary}>
               <Text style={styles.partTitle} numberOfLines={2}>{part.title}</Text>
-              <Text style={styles.partPrice}>{formatMoney(part.price)} · Impuestos/portes por confirmar</Text>
+              <Text style={styles.partPrice}>{formatMoneyWithVat(part.price)} · IVA incluido (portes por confirmar)</Text>
               <Text style={styles.vendorNotice}>
                 Gestionado por {vendor.tradeName} ({vendor.catAuthorizationCode})
               </Text>
@@ -252,6 +255,12 @@ export function InquiryModal({ visible, part, vendor, onClose }: Props) {
                   editable={!isSubmitting}
                 />
 
+                <View style={styles.privacyLayerBox}>
+                  <Text style={styles.privacyLayerText}>
+                    Información básica de privacidad: Responsable: {OPERATOR.legalName ?? OPERATOR.brand}. Finalidad: gestionar tu consulta y remitirla al desguace ({vendor.tradeName}) para verificar disponibilidad y compatibilidad (incluida matrícula/VIN si los indicas). Base legal: medidas precontractuales a petición tuya. Derechos: acceso, rectificación, supresión y demás derechos en {OPERATOR.email}.
+                  </Text>
+                </View>
+
                 <View style={styles.consentRow}>
                   <Switch
                     value={privacyAccepted}
@@ -260,7 +269,18 @@ export function InquiryModal({ visible, part, vendor, onClose }: Props) {
                     trackColor={{ false: colors.borderStrong, true: colors.accent }}
                   />
                   <Text style={styles.consentText}>
-                    Acepto que mis datos de contacto sean remitidos al desguace responsable de la pieza para gestionar esta consulta de disponibilidad (Aviso 2026-v1).
+                    He leído la{' '}
+                    <Text
+                      style={styles.consentLink}
+                      accessibilityRole="link"
+                      onPress={() => {
+                        onClose();
+                        router.push('/legal/privacidad' as Href);
+                      }}
+                    >
+                      Política de privacidad
+                    </Text>{' '}
+                    y solicito remitir mis datos de contacto (y matrícula/VIN si los indico) a {vendor.tradeName} para gestionar esta consulta.
                   </Text>
                 </View>
 
@@ -374,6 +394,19 @@ const styles = StyleSheet.create({
     height: 72,
     textAlignVertical: 'top',
   },
+  privacyLayerBox: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  privacyLayerText: {
+    fontSize: 11,
+    color: colors.textMuted,
+    lineHeight: 16,
+  },
   consentRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -385,6 +418,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     lineHeight: 16,
+  },
+  consentLink: {
+    color: colors.textPrimary,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
   },
   submitBtn: {
     backgroundColor: colors.accent,

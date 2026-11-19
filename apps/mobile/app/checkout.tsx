@@ -9,12 +9,13 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { initStripe, useStripe } from '../services/stripe-client';
-import { formatMoney, quoteShipping, shippingFailureMessage, vatCents } from '@mobile-marketplace/core';
+import { formatMoneyWithVat, quoteShipping, shippingFailureMessage, vatCents } from '@mobile-marketplace/core';
 import { useCart } from '../services/cart-context';
 import { AsyncStorageCartStorage } from '../services/cart-storage';
 import { buildOrderHref } from '../services/order-link';
@@ -48,6 +49,7 @@ export default function CheckoutScreen() {
   const [province, setProvince] = useState('');
 
   // Status & processing
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -153,6 +155,11 @@ export default function CheckoutScreen() {
       return false;
     }
 
+    if (!termsAccepted) {
+      setErrorMessage('Debes aceptar las Condiciones de compra y la Política de devoluciones antes de pagar.');
+      return false;
+    }
+
     return true;
   };
 
@@ -243,7 +250,7 @@ export default function CheckoutScreen() {
         await initStripe({
           publishableKey,
           stripeAccountId: res.stripeAccountId,
-          merchantIdentifier: 'merchant.com.marketplace.recambios',
+          merchantIdentifier: 'merchant.com.buscapiezas24h.recambios',
           urlScheme: 'recambios',
         });
       }
@@ -357,7 +364,7 @@ export default function CheckoutScreen() {
                   <Text style={styles.partSummaryTitle} numberOfLines={1}>{item.part.title}</Text>
                   <Text style={styles.partSummarySku}>Ref: {item.part.source.externalPartId}</Text>
                 </View>
-                <Text style={styles.partSummaryPrice}>{formatMoney(item.part.price)}</Text>
+                <Text style={styles.partSummaryPrice}>{formatMoneyWithVat(item.part.price)}</Text>
               </View>
             ))}
           </View>
@@ -509,34 +516,51 @@ export default function CheckoutScreen() {
           </View>
         )}
 
-        <Text style={styles.legalAcceptance}>
-          Al pulsar «Pagar» aceptas las{' '}
-          <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/condiciones' as Href)}>
-            Condiciones de compra
-          </Text>{' '}
-          y la{' '}
-          <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/devoluciones' as Href)}>
-            Política de devoluciones y garantía
+        <View style={styles.legalAcceptanceRow}>
+          <Switch
+            value={termsAccepted}
+            onValueChange={setTermsAccepted}
+            disabled={isSubmitting}
+            trackColor={{ false: colors.borderStrong, true: colors.accent }}
+            accessibilityLabel="Aceptar condiciones de compra y política de devoluciones"
+          />
+          <Text style={styles.legalAcceptance}>
+            He leído y acepto las{' '}
+            <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/condiciones' as Href)}>
+              Condiciones de compra
+            </Text>{' '}
+            y la{' '}
+            <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/devoluciones' as Href)}>
+              Política de devoluciones y garantía
+            </Text>{' '}
+            (desistimiento de 14 días), y he sido informado de la{' '}
+            <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/privacidad' as Href)}>
+              Política de privacidad
+            </Text>
+            .
           </Text>
-          , y confirmas que has leído la{' '}
-          <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/privacidad' as Href)}>
-            Política de privacidad
-          </Text>
-          .
-        </Text>
+        </View>
 
         {/* Pay Button */}
         <Pressable
-          style={[styles.payButton, isSubmitting && styles.payButtonDisabled]}
+          style={[styles.payButton, (isSubmitting || !termsAccepted) && styles.payButtonDisabled]}
           onPress={handlePay}
           disabled={isSubmitting}
           accessibilityRole="button"
-          accessibilityLabel={isTestOrder ? 'Pagar con Stripe en modo pruebas' : 'Pagar con Stripe'}
+          accessibilityLabel={
+            isTestOrder
+              ? `Pagar ${formatCents(totalCents)} con Stripe en modo pruebas`
+              : `Pagar ${formatCents(totalCents)} y confirmar pedido con obligación de pago`
+          }
         >
           {isSubmitting ? (
             <ActivityIndicator color={colors.textInverse} size="small" />
           ) : (
-            <Text style={styles.payButtonText}>{isTestOrder ? 'Pagar con Stripe (Modo Pruebas)' : 'Pagar con Stripe'}</Text>
+            <Text style={styles.payButtonText}>
+              {isTestOrder
+                ? `Pagar ${formatCents(totalCents)} (Modo Pruebas)`
+                : `Pagar ${formatCents(totalCents)} · Confirmar pedido`}
+            </Text>
           )}
         </Pressable>
       </ScrollView>
@@ -545,13 +569,18 @@ export default function CheckoutScreen() {
 }
 
 const styles = StyleSheet.create({
+  legalAcceptanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.xs,
+  },
   legalAcceptance: {
+    flex: 1,
     fontSize: 13,
     lineHeight: 19,
     color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: spacing.md,
-    paddingHorizontal: spacing.sm,
   },
   legalLink: {
     color: colors.textPrimary,

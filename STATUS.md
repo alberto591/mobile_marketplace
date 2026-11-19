@@ -1,99 +1,130 @@
-# Estado del Proyecto: Marketplace de Recambios de Desguace
+# Estado del Proyecto: BuscaPiezas 24H (Marketplace de Recambios de Desguace)
 
-- **Fecha de actualización:** 2026-10-21
-- **Fase completada:** BuscaPiezas 24H — MVP Experience Upgrade (7 Features completadas)
-- **Estado de pruebas:** 193 pruebas automatizadas pasando al 100% (105 en `@mobile-marketplace/core`, 88 en `@mobile-marketplace/mobile`)
-- **Tipado estático:** TypeScript estricto (`tsc --noEmit`) superado con 0 errores en core y mobile
-- **Compilación móvil:** Compatible con Expo SDK 57 / React Native 0.86 / `@stripe/stripe-react-native 0.64.0` (21/21 verificaciones de expo-doctor superadas)
-- **Proyecto Supabase Staging:** `lmsjgxhzfksyrlxyqndd` (West Europe - Ireland)
-- **Edge Functions Desplegadas:** `sync-batch`, `image-proxy`, `submit-inquiry`, `create-payment-intent` (bloqueo estricto de livemode, sincronización de readiness de Stripe, cálculo de precios fiable), `stripe-webhook` (verificación HMAC-SHA256, deduplicación, reintentos seguros y reconciliación de subpedidos)
-- **Proveedor de Pagos:** Stripe Connect (modo Test, Direct Charges en cuenta conectada del desguace con retención de 10% de comisión mediante `application_fee_amount`)
-- **Repositorio Remoto GitHub:** `https://github.com/alberto591/mobile_marketplace` (rama `main`)
+- **Fecha de actualización:** 2026-11-19
+- **Fase actual:** Piloto operativo en web (Vercel) + backend Supabase con catálogo completo de Eurodesguace Málaga, envío por peso, portal del desguace, textos legales y medición de uso
+- **Web publicada:** https://buscapiezas24h.vercel.app (desplegada desde `apps/mobile/dist` con rewrites SPA en `apps/mobile/vercel.json`)
+- **Estado de pruebas:** 270 pruebas unitarias pasando al 100 % (155 en `@mobile-marketplace/core` en 19 archivos, 115 en `@mobile-marketplace/mobile` en 18 archivos) + 8 pruebas opt-in contra backend en vivo (`npm run test:live`)
+- **Tipado estático:** TypeScript estricto (`npm run typecheck`) y `deno check` en las 6 Edge Functions superados con 0 errores
+- **Stack cliente:** Expo SDK 58 (`~58.0.26`) / React Native `0.88.1` / React `19.3.0` / `@stripe/stripe-react-native` `0.81.0`
+- **Proyecto Supabase:** `lmsjgxhzfksyrlxyqndd` (West Europe - Ireland)
+- **Catálogo sincronizado:** Eurodesguace Málaga completo — `36.771` piezas totales en `parts`, `31.873` activas en `public_catalog_parts` (`31.870` con `weight_grams`, 99,99 % de cobertura para cálculo automático de envío)
+- **Edge Functions desplegadas (6):** `eurodesguace-sync`, `image-proxy`, `submit-inquiry`, `create-payment-intent`, `stripe-webhook`, `vendor-order`
+- **Proveedor de pagos:** Stripe Connect (Direct Charges en cuenta conectada del desguace con comisión del 10 % sobre el subtotal de piezas mediante `application_fee_amount`)
+- **Repositorio GitHub:** https://github.com/alberto591/mobile_marketplace (rama `main`)
 
 ---
 
 ## 1. Resumen Ejecutivo del Estado
 
-Se ha completado la auditoría preflight del **Checkout Transaccional V2 con Stripe Connect** en el entorno de Supabase Staging:
+### 1.1. Catálogo y Sincronización
+- **Sincronización completa ejecutada (2026-11-19):** pasada íntegra por el catálogo de Eurodesguace Málaga mediante `eurodesguace-sync?action=sync-batch&limit=50` (`732` lotes sin errores, cursor reiniciado a `null`).
+- **Peso por pieza (`20261119000008_part_weight_for_shipping.sql`):** cada pieza almacena `weight_grams` (parseado desde el campo `peso` del proveedor) y se expone en `public_catalog_parts`. Las piezas sin precio utilizable pasan automáticamente a consulta comercial (`20261119000006_unpriced_parts_to_inquiry.sql`).
+- **Automatización:** `.github/workflows/sync-catalog.yml` recorre el catálogo cada 6 horas retomando el cursor almacenado en `source_integrations`.
+- **Car Center (VextCentral):** documentado en [car-center-vextcentral-api.md](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/docs/providers/car-center-vextcentral-api.md); a la espera de URL base y contrato oficial del canal para implementar el adaptador real.
 
-1. **Modelo de Negocio Marketplace Implementado:**
-   - **Vendedor Legal:** Cada desguace (CAT) es el vendedor registrado ante el consumidor.
-   - **Direct Charges:** Los pagos se dirigen a la cuenta conectada del desguace (`acct_...`), reteniendo la plataforma un 10% de comisión (`application_fee_amount`) calculada estrictamente sobre el subtotal de piezas (excluyendo envío e impuestos).
-   - **Restricción de Primer Lanzamiento:** Limitado a un único vendedor por pedido; carritos multiproveedor informan al usuario y procesan las piezas del CAT principal primero.
-   - **Tarifa Fija de Envíos en Staging:** 9,50 EUR (950 céntimos).
-   - **Tratamiento Fiscal:** Marcado explícitamente como `UNCONFIGURED` (0,00 EUR en pruebas; advertencia visible en UI y backend de que no constituye oferta comercial vinculante).
-   - **Bloqueo Servidor de Modo Real:** La Edge Function `create-payment-intent` rechaza terminantemente claves `sk_live_`, `rk_live_` y `pk_live_` con código 403 mientras los tributos permanezcan sin configurar.
+### 1.2. Checkout, Envíos y Operación de Pedidos
+- **Envío por peso y zona postal:** cálculo determinista en `packages/core/src/domain/entities/shipping.ts` y `supabase/functions/_shared/shipping.ts` según tabla `TABLA PORTES GENERAL` (península, Baleares, etc., hasta 250 kg). Si una pieza no tiene peso o el destino/peso no admite tarifa automática, el checkout deriva honestamente a consulta comercial en lugar de estimar un porte.
+- **Impuestos y comisión:** régimen general de IVA del 21 % (`GENERAL_21`) sobre piezas + envío; comisión de plataforma del 10 % exclusivamente sobre el subtotal de piezas.
+- **Reservas atómicas (`20261119000000_part_reservations.sql`):** reserva temporal de stock por pedido para evitar sobreventa concurrente y baja definitiva al confirmarse el pago (`mark_order_parts_sold`).
+- **Seguimiento y portal del desguace:**
+  - Comprador: historial local «Mis pedidos» (`apps/mobile/app/orders.tsx`) y enlace compartible de pedido (`apps/mobile/app/order/[reference].tsx`) con token en fragmento `#token=` en web.
+  - Vendedor (CAT): portal autenticado por token de subpedido (`apps/mobile/app/vendor/order.tsx` + Edge Function `vendor-order` + migración `20261119000005_vendor_order_actions.sql`) para confirmar preparación, registrar transportista y número de seguimiento, y notificar al comprador una sola vez.
+- **Notificaciones (`20261119000003_order_notifications.sql`):** outbox idempotente de correos al comprador y al vendedor tras pago confirmado (`stripe-webhook` + `_shared/order-emails.ts`).
 
-2. **Base de Datos y Seguridad (Migración `20261021000000_checkout_orders_and_stripe.sql`):**
-   - Tablas creadas: `orders` (pedido padre), `order_suborders` (subpedido por vendedor), `order_items` (instantánea inmutable de piezas), `stripe_webhook_events` (deduplicación por `stripe_event_id`), `order_refunds`.
-   - Modificación en `vendors`: metadatos de Stripe Connect (`stripe_account_id`, `stripe_charges_enabled`, `stripe_payouts_enabled`, etc.).
-   - RLS estricto: mutaciones restringidas exclusivamente a `service_role`. Lectura segura de pedidos mediante RPC con `access_token` no predecible (protege el guest checkout).
-   - Inalterabilidad del catálogo: las 114 piezas de Eurodesguace Málaga se mantienen intactas (`content-range: 0-0/114`).
+### 1.3. Seguridad, Privacidad y Textos Legales
+- **Rate limit compartido (`20261119000007_shared_rate_limit.sql`):** contador atómico en PostgreSQL (`rate_limit_counters` / `check_rate_limit`) compartido entre todas las instancias de Edge Functions (`submit-inquiry`, `create-payment-intent`, `vendor-order`, `record_client_event`), almacenando solo el hash SHA-256 de la clave.
+- **Mínimo privilegio en BD (`20261119000002_public_column_grants.sql`):** `anon` y `authenticated` solo leen columnas públicas explícitas; todas las mutaciones críticas pasan por `service_role` o RPCs validadas.
+- **Páginas legales (`apps/mobile/content/legal.ts`, `apps/mobile/app/legal/`):** Aviso legal (incluye punto de contacto DSA), Política de privacidad, Condiciones de compra y Política de devoluciones/garantía.
 
-3. **Integración de Car Center (VextCentral - Paso 12):**
-   - Documentada en `docs/providers/car-center-vextcentral-api.md`. Se mantiene a la espera de la URL base y contrato oficial del canal de VextCentral para implementar el adaptador sin inventar endpoints ni datos sintéticos.
+### 1.4. Medición de Uso y Embudo de Producto (`20261119000009_usage_analytics.sql`)
+- **Eventos registrados en `product_events` (sin PII ni cookies de terceros):**
+  - `search`: todas las búsquedas desde `apps/mobile/app/results.tsx` con `query_text`, filtros y `result_count` (identificando búsquedas con `result_count = 0`).
+  - `part_click`: clics sobre fichas en resultados de búsqueda con `part_id`, `vendor_id`, posición y contexto de búsqueda.
+  - `inquiry_submitted`: registrado en servidor desde `submit-inquiry` al persistir cada consulta comercial.
+  - `checkout_started`: registrado en servidor desde `create-payment-intent` al crear el pedido y vincular el PaymentIntent.
+  - `purchase_completed`: registrado en servidor desde `stripe-webhook` de forma idempotente en la primera transición a `SUCCEEDED` (incluye `amount_cents` para GMV).
+- **Seguridad:** acceso directo a `product_events` restringido a `service_role`; el cliente solo puede invocar la RPC `record_client_event` (limitada a `search` y `part_click`, validada y protegida con `check_rate_limit`).
+- **Vistas de consulta (`service_role`):**
+  - `usage_funnel_daily`: embudo diario (`searches`, `searches_zero_results`, `zero_result_rate_pct`, `part_clicks`, `search_ctr_pct`, `inquiries`, `checkouts_started`, `purchases_completed`, `gmv_cents`).
+  - `usage_zero_result_queries`: top búsquedas sin resultados en los últimos 30 días.
 
 ---
 
 ## 2. Cobertura de Pruebas Automatizadas
 
-Se ejecutan **191 pruebas automatizadas** pasando al 100% con Vitest:
+Ejecución verificada con Vitest (`npm test`): **270 pruebas unitarias pasando (100 %)** + **8 pruebas live opt-in**.
 
-| Módulo / Archivo | Pruebas | Estado | Cobertura |
-|---|---|---|---|
-| `packages/core/test/transactional-checkout.test.ts` | 10 | Superado | Precios confiables, desglose de comisiones 10%, tarifas fijas 9,50 EUR, esquemas Zod de checkout y dirección |
-| `packages/core/test/commercial-inquiries.test.ts` | 18 | Superado | Esquemas de consulta, consentimiento, idempotencia, rate limiting y aislamiento en modo test |
-| `packages/core/test/vextcentral-contract.test.ts` | 2 | Superado | Esquema borrador y validaciones para piezas VextCentral |
-| `packages/core/test/money.test.ts` | 8 | Superado | Centavos enteros, parsing decimal, operaciones seguras |
-| `packages/core/test/oem-normalization.test.ts` | 5 | Superado | Limpieza de caracteres, equivalencias y mayúsculas |
-| `packages/core/test/compatibility-signal.test.ts` | 6 | Superado | OEM oficial vs referencia visual del CAT (no garantizada) |
-| `packages/core/test/validation-and-errors.test.ts` | 3 | Superado | Esquemas Zod, rechazo de negativos y normativas CAT |
-| `packages/core/test/duplicate-and-traceability.test.ts` | 3 | Superado | Aislamiento de origen, preservación multi-desguace y proyección |
-| `packages/core/test/mock-adapters.test.ts` | 10 | Superado | Paginación, capacidades opcionales, consulta de stock y 404 |
-| `packages/core/test/eurodesguace-adapter.test.ts` | 11 | Superado | Parsing de coma decimal, Zod schemas, 429 Retry-After, cursor, confidencialidad |
-| `packages/core/test/eurodesguace-sync-engine.test.ts` | 6 | Superado | Idempotencia, cursor, bajas lógicas, límite estricto de 50 piezas en servidor |
-| `packages/core/test/sync-edge-function-security.test.ts` | 5 | Superado | Autorización de sync-batch (401), token inválido, clamp a 50 piezas en servidor |
-| `packages/core/test/image-proxy-security.test.ts` | 18 | Superado | Hardening de image-proxy: SSRF, lista blanca, userinfo, redirecciones, timeouts 10s, tope 10MB, MIME y fallback seguro |
-| `apps/mobile/test/checkout-service.test.ts` | 3 | Superado | Servicio cliente de checkout: creación de PaymentIntent, consulta de pedido por token RPC y manejo de errores tipados |
-| `apps/mobile/test/catalog-service.test.ts` | 12 | Superado | Agregación multi-proveedor, filtrado por Eurodesguace Málaga, referencias visuales |
-| `apps/mobile/test/backend-catalog-service.test.ts` | 9 | Superado | Consulta PostgREST, headers anon, filtros, OEM vs visual, getPartById, Fail Fast, factoría, enrutamiento seguro de imágenes a image-proxy |
-| `apps/mobile/test/live-backend-integration.test.ts` | 8 | Superado | 11 flujos de usuario contra Supabase Staging en vivo con inventario real |
-| `apps/mobile/test/cart-service.test.ts` | 9 | Superado | Carrito, invariantes de cantidad 1, no duplicados, agrupación por desguace, persistencia, céntimos enteros |
-| `apps/mobile/test/category-grid.test.ts` | 5 | Superado | Feature 1: Agrupación visual de categorías y supresión de categorías vacías |
-| `apps/mobile/test/whatsapp-contact.test.ts` | 9 | Superado | Feature 2: Normalización telefónica (+34), mensaje honesto prellenado sin falsos OEM y apertura de WhatsApp |
-| `apps/mobile/test/share-part.test.ts` | 5 | Superado | Feature 3: Generación de mensaje para compartir con mecánico/cliente y manejo de Share nativo |
-| `apps/mobile/test/favourites.test.ts` | 8 | Superado | Feature 4: Persistencia AsyncStorage, deduplicación, sincronización de estado y tolerancia a fallos |
-| `apps/mobile/test/garage.test.ts` | 8 | Superado | Feature 5: Mi Garaje, serialización, filtrado por vehículo y guardarraíles de compatibilidad |
-| `apps/mobile/test/savings-comparison.test.ts` | 6 | Superado | Feature 6: Ahorro matemático seguro, supresión ante PVP ausente y rigor en huella de CO₂ |
-| `apps/mobile/test/cat-trust.test.ts` | 4 | Superado | Feature 7: Evaluación de desguaces CAT, verificación legal, garantías y enlaces oficiales |
+### `@mobile-marketplace/core` (19 archivos, 155 pruebas)
+| Archivo | Pruebas | Cobertura |
+|---|---|---|
+| `commercial-inquiries.test.ts` | 18 | Consultas comerciales, consentimiento, idempotencia, rate limiting |
+| `image-proxy-security.test.ts` | 18 | Hardening SSRF, lista blanca, redirecciones, timeouts, MIME |
+| `eurodesguace-adapter.test.ts` | 11 | Parsing decimal, Zod, 429 Retry-After, cursor, confidencialidad |
+| `order-paid-emails.test.ts` | 11 | Correos de pedido pagado a comprador/vendedor e idempotencia |
+| `mock-adapters.test.ts` | 10 | Paginación, stock y errores 404 |
+| `shipping.test.ts` | 10 | Tarifas por peso y zona postal, IVA 21 %, exclusiones |
+| `transactional-checkout.test.ts` | 10 | Precios confiables, comisión 10 %, esquemas Zod de checkout |
+| `eurodesguace-sync-persistence.test.ts` | 8 | Normalización e ingesta por lotes con peso y bajas |
+| `money.test.ts` | 8 | Céntimos enteros, parsing decimal y operaciones seguras |
+| `sync-edge-function-security.test.ts` | 7 | Autorización `sync-batch`, clamp a 50 piezas, acciones admin |
+| `compatibility-signal.test.ts` | 6 | OEM oficial frente a referencia visual del CAT |
+| `eurodesguace-sync-engine.test.ts` | 6 | Idempotencia, cursor, bajas lógicas y límite de lote |
+| `vendor-order.test.ts` | 6 | Portal del vendedor: validaciones, envío, tracking y correos |
+| `oem-normalization.test.ts` | 5 | Normalización de referencias OEM |
+| `rate-limit.test.ts` | 5 | Ventanas locales y contador compartido |
+| `duplicate-and-traceability.test.ts` | 3 | Aislamiento de origen y trazabilidad multi-desguace |
+| `product-events.test.ts` | 3 | Serialización e inserción fail-safe de eventos de servidor |
+| `validation-and-errors.test.ts` | 3 | Esquemas Zod y normativas CAT |
+| `vextcentral-contract.test.ts` | 2 | Esquema borrador para VextCentral |
+
+### `@mobile-marketplace/mobile` (18 archivos activos, 115 pruebas + 1 archivo live opt-in, 8 pruebas)
+| Archivo | Pruebas | Cobertura |
+|---|---|---|
+| `catalog-service.test.ts` | 12 | Agregación multi-proveedor, filtros y referencias visuales |
+| `backend-catalog-service.test.ts` | 11 | PostgREST, `search_catalog`, peso, Fail Fast y proxy de imágenes |
+| `cart-service.test.ts` | 9 | Carrito, cantidad 1, agrupación por desguace y persistencia |
+| `whatsapp-contact.test.ts` | 9 | Normalización +34, mensaje honesto y apertura de WhatsApp |
+| `favourites.test.ts` | 8 | Persistencia de favoritos, deduplicación y tolerancia a fallos |
+| `garage.test.ts` | 8 | Mi Garaje, serialización y filtro por vehículo donante |
+| `savings-comparison.test.ts` | 8 | Ahorro seguro frente a PVP y rigor en datos |
+| `pending-orders-and-cart-hardening.test.ts` | 7 | Protección de carrito y pedidos pendientes |
+| `checkout-attempt.test.ts` | 6 | Reintentos idempotentes de checkout |
+| `category-grid.test.ts` | 5 | Agrupación visual de categorías |
+| `share-part.test.ts` | 5 | Compartir pieza con mecánico/cliente |
+| `analytics-service.test.ts` | 4 | Eventos `search`, cero resultados, `part_click` y tolerancia a fallos |
+| `cat-trust.test.ts` | 4 | Verificación CAT, garantías y enlaces oficiales |
+| `legal-content.test.ts` | 4 | Integridad de textos legales y detección de datos pendientes |
+| `order-history-and-status.test.ts` | 4 | Historial «Mis pedidos» y estados |
+| `order-link.test.ts` | 4 | Enlace compartible con token en `#fragment` en web |
+| `vendor-order-service.test.ts` | 4 | Cliente del portal del vendedor |
+| `checkout-service.test.ts` | 3 | Creación de PaymentIntent y consulta de pedido por token |
+| `live-backend-integration.test.ts` | 8 (opt-in) | Flujos contra backend Supabase real (`npm run test:live`) |
 
 ---
 
-## 3. Instrucciones para la Ejecución y Prueba Manual
+## 3. Comandos de Verificación y Despliegue
 
-### 3.1. Comprobación Técnica Previa
 ```bash
-# 1. Comprobar suite completa (193 tests)
+# 1. Comprobar tipado y suite completa
+npm run typecheck
 npm test
 
-# 2. Comprobar tipado estricto
-npm run typecheck
-```
+# 2. Comprobar Edge Functions con Deno
+deno check supabase/functions/{create-payment-intent,stripe-webhook,eurodesguace-sync,vendor-order,submit-inquiry,image-proxy}/index.ts
 
-### 3.2. Arrancar la Aplicación Móvil
-```bash
-# Iniciar servidor de desarrollo de Expo conectado a Supabase Staging
-npm run start -w @mobile-marketplace/mobile
+# 3. Verificar salud de Supabase en producción
+python3 scripts/check_supabase_production.py
+
+# 4. Exportar web y publicar en Vercel
+cd apps/mobile && EXPO_NO_TELEMETRY=1 npx expo export --platform web
+vercel deploy --prod --yes --cwd apps/mobile/dist
 ```
 
 ---
 
-## 4. Configuración Necesaria para Notificaciones Reales
+## 4. Pendientes Operativos Antes de Tráfico Real
 
-Para activar el envío telemático de correos a Eurodesguaces Málaga en Staging/Producción, deben configurarse los siguientes secretos en Supabase:
-
-- `RESEND_API_KEY`: Clave de API de Resend vinculada a la cuenta de mensajería.
-- `INQUIRY_FROM_EMAIL`: Remitente de dominio verificado (ej. `consultas@tudominio.com`).
-- `EURODESGUACE_INQUIRY_EMAIL`: Dirección de correo comercial confirmada por Eurodesguace Málaga para recibir solicitudes de compra de piezas.
-
-*(Si no se configuran, el sistema opera en modo seguro `SKIPPED_NOT_CONFIGURED`, registrando todas las consultas en base de datos sin generar errores).*
+1. **Datos del titular en textos legales:** completar `taxId` (NIF) y `address` (domicilio) en `OPERATOR` dentro de [legal.ts](file:///Users/lycanbeats/Desktop/Mobile%20marketplace/apps/mobile/content/legal.ts) (actualmente marcados como `[pendiente de completar]`).
+2. **Correos en modo real:** configurar en Supabase `RESEND_API_KEY`, `INQUIRY_FROM_EMAIL`, `ORDER_FROM_EMAIL`, `EURODESGUACE_INQUIRY_EMAIL`, `VENDOR_PORTAL_BASE_URL` y activar `ORDER_EMAIL_TEST_MODE=false` cuando se pase a producción comercial.
+3. **Stripe en modo real:** pasar de claves de test a claves live cuando la fiscalidad y la cuenta conectada del desguace estén validadas para cobros reales.
+4. **Segundo proveedor (Car Center / VextCentral):** implementar adaptador en cuanto se reciba la URL base y contrato oficial de la API.

@@ -35,7 +35,14 @@ export interface PaidSuborderDetails {
     readonly postalCode: string;
     readonly country: string;
   };
-  readonly vendor: { readonly tradeName: string; readonly email: string | null; readonly phone: string | null };
+  readonly vendor: {
+    readonly tradeName: string;
+    readonly legalName?: string | null;
+    readonly catAuthorizationCode?: string | null;
+    readonly address?: string | null;
+    readonly email: string | null;
+    readonly phone: string | null;
+  };
   readonly items: readonly OrderEmailItem[];
   /** Capability token for the seller page of this suborder. Only ever sent to the seller. */
   readonly vendorActionToken: string | null;
@@ -189,6 +196,11 @@ export function buildSellerOrderEmail(
   return { subject, html };
 }
 
+export function legalDocumentLink(baseUrl: string | undefined, slug: 'condiciones' | 'devoluciones' | 'privacidad'): string | null {
+  if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) return null;
+  return `${baseUrl.replace(/\/+$/, '')}/legal/${slug}`;
+}
+
 export function buildBuyerOrderEmail(
   order: PaidSuborderDetails,
   config: OrderEmailConfig,
@@ -197,6 +209,20 @@ export function buildBuyerOrderEmail(
   const prefix = order.isTestOrder || config.testMode ? '[PRUEBA] ' : '';
   const subject = singleLine(`${prefix}Pago confirmado — pedido ${order.orderReference}`);
   const vendorContact = [order.vendor.phone, order.vendor.email].filter(Boolean).map(escapeHtml).join(' · ');
+  const vendorLegalParts = [
+    order.vendor.legalName ? escapeHtml(order.vendor.legalName) : null,
+    order.vendor.catAuthorizationCode ? `CAT ${escapeHtml(order.vendor.catAuthorizationCode)}` : null,
+    order.vendor.address ? escapeHtml(order.vendor.address) : null,
+  ].filter(Boolean);
+  const termsUrl = legalDocumentLink(config.vendorPortalBaseUrl, 'condiciones');
+  const returnsUrl = legalDocumentLink(config.vendorPortalBaseUrl, 'devoluciones');
+  const legalLinksHtml =
+    termsUrl && returnsUrl
+      ? `<p style="font-size: 12px; color: #475569; margin-top: 8px;">
+          Consulta las <a href="${escapeHtml(termsUrl)}" style="color: #0f172a;">Condiciones de compra</a> y la
+          <a href="${escapeHtml(returnsUrl)}" style="color: #0f172a;">Política de devoluciones, garantía y formulario de desistimiento</a>.
+        </p>`
+      : '';
   const html = `
   <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
     ${testBannerHtml(order, config, intendedRecipient)}
@@ -221,8 +247,14 @@ export function buildBuyerOrderEmail(
       <p>${addressHtml(order)}</p>
     </div>
 
-    <p style="font-size: 13px;">Vendedor: <b>${escapeHtml(order.vendor.tradeName)}</b>${vendorContact ? ` (${vendorContact})` : ''}.
-    Puedes ver el estado del pedido en la app. Guarda este correo: incluye tu referencia de pedido.</p>
+    <div style="background: #f8fafc; padding: 14px 16px; border-radius: 8px; margin: 16px 0; font-size: 12px; color: #334155; line-height: 1.5;">
+      <p style="margin: 0 0 6px 0;"><b>Vendedor legal:</b> ${escapeHtml(order.vendor.tradeName)}${vendorLegalParts.length ? ` (${vendorLegalParts.join(' · ')})` : ''}${vendorContact ? ` — ${vendorContact}` : ''}.</p>
+      <p style="margin: 0 0 6px 0;"><b>Derecho de desistimiento (14 días naturales):</b> si compras como consumidor, puedes desistir sin dar explicaciones en los 14 días naturales siguientes a la recepción de la pieza escribiendo al vendedor o a admin@loopinnova.es con tu referencia de pedido. El coste directo de devolución corre a cargo del comprador.</p>
+      <p style="margin: 0;"><b>Garantía legal:</b> mínimo 12 meses de garantía legal de conformidad desde la entrega. Para factura completa con NIF/CIF, solicítala directamente al vendedor indicando la referencia <b>${escapeHtml(order.orderReference)}</b>.</p>
+      ${legalLinksHtml}
+    </div>
+
+    <p style="font-size: 13px;">Puedes ver el estado del pedido en la app. Guarda este correo como comprobante de tu compra.</p>
   </div>`;
   return { subject, html };
 }
@@ -266,7 +298,16 @@ export function mapSuborderRow(row: any): PaidSuborderDetails {
       postalCode: o.shipping_postal_code,
       country: o.shipping_country,
     },
-    vendor: { tradeName: v?.trade_name ?? 'Desguace', email: v?.public_email ?? null, phone: v?.public_phone ?? null },
+    vendor: {
+      tradeName: v?.trade_name ?? 'Desguace',
+      legalName: v?.legal_name ?? null,
+      catAuthorizationCode: v?.cat_authorization_code ?? null,
+      address: [v?.address_line, [v?.postal_code, v?.city].filter(Boolean).join(' '), v?.province ? `(${v.province})` : null]
+        .filter(Boolean)
+        .join(', ') || null,
+      email: v?.public_email ?? null,
+      phone: v?.public_phone ?? null,
+    },
     // deno-lint-ignore no-explicit-any
     items: (row.order_items ?? []).map((i: any) => ({
       title: i.title,
@@ -283,7 +324,7 @@ export const SUBORDER_EMAIL_SELECT = `
   orders ( order_reference, is_test_order, customer_name, customer_email, customer_phone,
            shipping_address_line1, shipping_address_line2, shipping_city, shipping_province,
            shipping_postal_code, shipping_country ),
-  vendors ( trade_name, public_email, public_phone ),
+  vendors ( trade_name, legal_name, cat_authorization_code, address_line, postal_code, city, province, public_email, public_phone ),
   order_items ( title, external_part_id, unit_price_cents )
 `;
 

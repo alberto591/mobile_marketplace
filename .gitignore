@@ -68,6 +68,7 @@ local.properties
 *.jks
 *.apk
 *.aab
+google-play-service-account.json
 
 # Supabase local environment
 supabase/.branches/

@@ -1,3 +1,5 @@
+import { vatCents } from './shipping.js';
+
 /**
  * Money Value Object.
  * Represents monetary values stored strictly as integer cents to eliminate floating-point precision drift.
@@ -52,6 +54,27 @@ export function createMoneyFromDecimal(decimalAmount: number | string, currency:
 export function formatMoney(money: Money): string {
   const units = (money.amountInCents / 100).toFixed(2).replace('.', ',');
   return `${units} ${money.currency}`;
+}
+
+/**
+ * Converts a net integer-cent amount to gross B2C cents including Spanish VAT (21 %).
+ */
+export function grossCentsWithVat(netCents: number): number {
+  return netCents + vatCents(netCents);
+}
+
+/**
+ * Returns a new Money value object with Spanish VAT (21 %) included for B2C display.
+ */
+export function moneyWithVat(netMoney: Money): Money {
+  return createMoney(grossCentsWithVat(netMoney.amountInCents), netMoney.currency);
+}
+
+/**
+ * Formats a net catalog Money value as a B2C PVP string with Spanish VAT (21 %) included.
+ */
+export function formatMoneyWithVat(netMoney: Money): string {
+  return formatMoney(moneyWithVat(netMoney));
 }
 
 /**

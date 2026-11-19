@@ -25,6 +25,13 @@ describe('Image Proxy Security & Hardening (Unit Tests)', () => {
       }
     });
 
+    it('accepts numbered Metasync CDN shards and rejects arbitrary subdomains', () => {
+      expect(validateTargetUrl('https://cdn18.metasync.com/abc123==').valid).toBe(true);
+      expect(validateTargetUrl('https://cdn2.metasync.com/photo.jpg').valid).toBe(true);
+      expect(validateTargetUrl('https://evil.metasync.com/photo.jpg').valid).toBe(false);
+      expect(validateTargetUrl('https://cdn18.metasync.com.evil.com/photo.jpg').valid).toBe(false);
+    });
+
     it('rejects HTTP scheme with 403', () => {
       const res = validateTargetUrl('http://cdn11.metasync.com/photo.jpg');
       expect(res.valid).toBe(false);

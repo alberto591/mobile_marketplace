@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import type { SubmitInquiryResponse } from '@mobile-marketplace/core';
-import { formatMoney } from '@mobile-marketplace/core';
+import { formatMoneyWithVat } from '@mobile-marketplace/core';
 import { useCart } from '../services/cart-context';
 import { inquiryService } from '../services/inquiry.service';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
@@ -233,22 +233,22 @@ export default function ConfirmAvailabilityScreen() {
                         {item.part.title}
                       </Text>
                       <Text style={styles.miniItemPrice}>
-                        {formatMoney(item.part.price)}
+                        {formatMoneyWithVat(item.part.price)}
                       </Text>
                     </View>
                   ))}
                   <Text style={styles.groupSubtotalText}>
-                    Subtotal {group.vendor.tradeName}: {formatMoney(group.subtotal)}
+                    Subtotal {group.vendor.tradeName}: {formatMoneyWithVat(group.subtotal)}
                   </Text>
                 </View>
               ))}
 
               <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Subtotal piezas (precio publicado):</Text>
-                <Text style={styles.totalAmount}>{formatMoney(subtotal)}</Text>
+                <Text style={styles.totalLabel}>Subtotal piezas (IVA incluido):</Text>
+                <Text style={styles.totalAmount}>{formatMoneyWithVat(subtotal)}</Text>
               </View>
               <Text style={styles.provisionalNote}>
-                * Subtotal provisional sobre precios publicados por el desguace. Impuestos aplicables y gastos de transporte por confirmar con cada centro.
+                * Precios orientativos con IVA incluido (21 %). Disponibilidad física y gastos de transporte por confirmar con cada centro.
               </Text>
             </View>
 

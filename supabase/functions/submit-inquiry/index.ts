@@ -3,6 +3,7 @@
 // enforces idempotency, validates contact & privacy consent, and dispatches email notifications.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { recordServerEvent } from '../_shared/product-events.ts';
 import { checkSharedRateLimit, createLocalLimiter } from '../_shared/rate-limit.ts';
 import { z } from 'https://esm.sh/zod@3.24.2';
 
@@ -744,6 +745,17 @@ export async function handler(req: Request, options: HandlerOptions = {}): Promi
         : 'REGISTERED';
 
     await supabase.from('inquiries').update({ status: finalInquiryStatus }).eq('id', createdInquiry.id);
+
+    await recordServerEvent(supabase, {
+      eventName: 'inquiry_submitted',
+      vendorId,
+      partId: partsInGroup.length === 1 ? partsInGroup[0].id : null,
+      metadata: {
+        inquiryId: createdInquiry.id,
+        itemCount: partsInGroup.length,
+        notificationStatus,
+      },
+    });
 
     inquiriesSummary.push({
       inquiryId: createdInquiry.id,

@@ -33,6 +33,27 @@ describe('Legal texts', () => {
     const returns = allText(findLegalDocument('devoluciones')!);
     expect(returns).toContain('14 días naturales');
     expect(returns).toContain('12 meses');
+    expect(returns).toContain('Anexo I-B TRLGDCU');
+    expect(returns).toContain('última pieza');
+    expect(returns).toContain('Durante el primer año desde la entrega');
+  });
+
+  it('includes mandatory EU/Spanish marketplace disclosures (DSA, Omnibus, RGPD)', () => {
+    const notice = allText(findLegalDocument('aviso-legal')!);
+    expect(notice).toContain('2022/2065');
+    expect(notice).toContain('punto de contacto único');
+
+    const privacy = allText(findLegalDocument('privacidad')!);
+    expect(privacy).toContain('matrícula');
+    expect(privacy).toContain('VIN');
+    expect(privacy).toContain('art. 32 de la LOPDGDD');
+    expect(privacy).toContain('WhatsApp');
+
+    const terms = allText(findLegalDocument('condiciones')!);
+    expect(terms).toContain('art. 97 bis TRLGDCU');
+    expect(terms).toContain('Ley 7/2017');
+    expect(terms).toContain('Para reparar / Despiece');
+    expect(terms).toContain('con el IVA incluido');
   });
 
   it('marks missing operator details and fills them in when provided', () => {

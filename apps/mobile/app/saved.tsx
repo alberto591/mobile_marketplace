@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { formatMoney, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
+import { formatMoneyWithVat, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
 import { CompatibilityBadge } from '../components/CompatibilityBadge';
 import { EmptyState } from '../components/EmptyState';
 import { catalogService } from '../services/catalog-service.factory';
@@ -155,7 +155,7 @@ export default function SavedPartsScreen() {
                   <Text style={styles.partTitle} numberOfLines={2}>
                     {part.title}
                   </Text>
-                  <Text style={styles.partPrice}>{formatMoney(part.price)}</Text>
+                  <Text style={styles.partPrice}>{formatMoneyWithVat(part.price)} · IVA incluido</Text>
                   <Text style={styles.vendorText} numberOfLines={1}>
                     {vendor.tradeName} · {vendor.location.city}
                   </Text>

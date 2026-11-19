@@ -17,6 +17,7 @@ import type {
   SortOrderOption,
 } from '../services/catalog-service.interface';
 import { catalogService } from '../services/catalog-service.factory';
+import { analyticsService } from '../services/analytics.service';
 import { useGarage } from '../services/garage-context';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 
@@ -88,6 +89,7 @@ export default function ResultsScreen() {
 
         if (isMounted) {
           setResults(res);
+          void analyticsService.trackSearch(filters, res.totalCount);
           setDiscoveredVendors((prev) => {
             const map = new Map<string, string>();
             for (const v of prev) map.set(v.id, v.name);
@@ -317,7 +319,19 @@ export default function ResultsScreen() {
         <FlatList
           data={results.items}
           keyExtractor={(item) => item.part.id}
-          renderItem={({ item }) => <PartCard item={item} />}
+          renderItem={({ item, index }) => (
+            <PartCard
+              item={item}
+              onOpen={() => {
+                void analyticsService.trackPartClick({
+                  partId: item.part.id,
+                  vendorId: item.vendor?.id,
+                  position: index,
+                  query: params.query || params.oemReference || params.categoryLabel,
+                });
+              }}
+            />
+          )}
           contentContainerStyle={styles.listContent}
           ListFooterComponent={
             results.nextOffset !== undefined ? (

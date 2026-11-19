@@ -14,6 +14,14 @@ export const ALLOWED_HOSTS = new Set([
   'www.eurodesguacemalaga.com',
 ]);
 
+// Metasync rotates numbered CDN shards (e.g. cdn11.metasync.com, cdn18.metasync.com).
+const METASYNC_CDN_REGEX = /^cdn\d{1,3}\.metasync\.com$/;
+
+export function isAllowedHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return ALLOWED_HOSTS.has(normalized) || METASYNC_CDN_REGEX.test(normalized);
+}
+
 // Allowed image formats compatible with mobile app rendering
 export const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
@@ -73,8 +81,8 @@ export function validateTargetUrl(urlInput: string): { valid: true; url: URL } |
     return { valid: false, error: 'Literal IP addresses are prohibited', status: 403 };
   }
 
-  // 5. Must match strict allowed hosts
-  if (!ALLOWED_HOSTS.has(hostname)) {
+  // 5. Must match strict allowed hosts or numbered Metasync CDN shards
+  if (!isAllowedHost(hostname)) {
     return { valid: false, error: 'Target host is not permitted by image proxy policy', status: 403 };
   }
 

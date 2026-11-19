@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { formatMoney, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
+import { formatMoneyWithVat, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
 import type { SearchResultItem } from '../services/catalog-service.interface';
 import { useFavourites } from '../services/favourites-context';
 import { sharePartNative } from '../services/share-part.service';
@@ -11,9 +11,10 @@ import { CompatibilityBadge } from './CompatibilityBadge';
 
 interface Props {
   readonly item: SearchResultItem;
+  readonly onOpen?: () => void;
 }
 
-export function PartCard({ item }: Props) {
+export function PartCard({ item, onOpen }: Props) {
   const { part, vendor, compatibility } = item;
   const primaryImg = getPrimaryImage(part);
   const primaryOEM = getPrimaryOEMReference(part);
@@ -41,7 +42,7 @@ export function PartCard({ item }: Props) {
       partId: part.id,
       externalPartId: part.source.externalPartId,
       partTitle: part.title,
-      priceFormatted: formatMoney(part.price),
+      priceFormatted: formatMoneyWithVat(part.price),
       vendorTradeName: vendor.tradeName,
       primaryReference: primaryOEM
         ? {
@@ -54,6 +55,7 @@ export function PartCard({ item }: Props) {
   };
 
   const handlePress = () => {
+    onOpen?.();
     router.push({
       pathname: '/part/[id]',
       params: { id: part.id },
@@ -65,7 +67,7 @@ export function PartCard({ item }: Props) {
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={handlePress}
       accessibilityRole="button"
-      accessibilityLabel={`Ver recambio ${part.title}, precio ${formatMoney(part.price)}`}
+      accessibilityLabel={`Ver recambio ${part.title}, precio ${formatMoneyWithVat(part.price)} IVA incluido`}
     >
       {/* Top Banner: Image & Quick Badges */}
       <View style={styles.imageContainer}>
@@ -190,8 +192,8 @@ export function PartCard({ item }: Props) {
         {/* Price & Checkout Note Row */}
         <View style={styles.priceFooter}>
           <View style={styles.priceBlock}>
-            <Text style={styles.price}>{formatMoney(part.price)}</Text>
-            <Text style={styles.vatNote}>+ 21 % de IVA y portes en checkout</Text>
+            <Text style={styles.price}>{formatMoneyWithVat(part.price)}</Text>
+            <Text style={styles.vatNote}>IVA incluido · portes en checkout</Text>
           </View>
           <View style={styles.viewDetailPill}>
             <Text style={styles.viewDetailText}>Ver pieza</Text>

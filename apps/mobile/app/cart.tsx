@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { formatMoney, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
+import { formatMoneyWithVat, getPrimaryImage, getPrimaryOEMReference } from '@mobile-marketplace/core';
 import { EmptyState } from '../components/EmptyState';
 import { useCart } from '../services/cart-context';
 import type { CartItem } from '../services/cart.service';
@@ -156,9 +156,9 @@ export default function CartScreen() {
 
                       <View style={styles.itemPriceBlock}>
                         <Text style={styles.itemPrice}>
-                          {formatMoney(item.part.price)}
+                          {formatMoneyWithVat(item.part.price)}
                         </Text>
-                        <Text style={styles.itemVat}>+ 21 % de IVA y portes en checkout</Text>
+                        <Text style={styles.itemVat}>IVA incluido (21 %) · portes en checkout</Text>
                       </View>
                     </View>
 
@@ -182,11 +182,11 @@ export default function CartScreen() {
                 Subtotal piezas {group.vendor.tradeName}:
               </Text>
               <Text style={styles.vendorSubtotalValue}>
-                {formatMoney(group.subtotal)}
+                {formatMoneyWithVat(group.subtotal)}
               </Text>
             </View>
             <Text style={styles.shippingNotice}>
-              Precio publicado por el desguace. Impuestos aplicables y gastos de transporte por confirmar con {group.vendor.tradeName}.
+              Precios con IVA incluido (21 %). Los gastos de envío de {group.vendor.tradeName} se calculan en el checkout según peso y destino.
             </Text>
           </View>
         ))}
@@ -204,7 +204,7 @@ export default function CartScreen() {
             <Text style={styles.totalCountLabel}>
               {itemCount} {itemCount === 1 ? 'pieza seleccionada' : 'piezas seleccionadas'}
             </Text>
-            <Text style={styles.subtotalValue}>{formatMoney(subtotal)}</Text>
+            <Text style={styles.subtotalValue}>{formatMoneyWithVat(subtotal)}</Text>
           </View>
 
           <Pressable
@@ -219,7 +219,7 @@ export default function CartScreen() {
         </View>
 
         <Text style={styles.subtotalHint}>
-          Precio de catálogo · Gastos de envío e impuestos en el checkout
+          IVA incluido (21 %) · Gastos de envío calculados en el checkout
         </Text>
       </View>
     </View>

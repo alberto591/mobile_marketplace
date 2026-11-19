@@ -5,6 +5,7 @@
 // persists parent order & seller suborder, and creates Stripe Direct Charge PaymentIntent.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { recordServerEvent } from '../_shared/product-events.ts';
 import { createLocalLimiter, enforceRateLimit } from '../_shared/rate-limit.ts';
 import { quoteShipping, shippingFailureMessage, vatCents } from '../_shared/shipping.ts';
 import { z } from 'https://esm.sh/zod@3.24.2';
@@ -963,7 +964,7 @@ export async function handler(req: Request): Promise<Response> {
       const stripeParams = new URLSearchParams();
       stripeParams.set('amount', totalCents.toString());
       stripeParams.set('currency', 'eur');
-      stripeParams.set('payment_method_types[0]', 'card');
+      stripeParams.set('automatic_payment_methods[enabled]', 'true');
       stripeParams.set('application_fee_amount', platformFeeCents.toString());
       stripeParams.set('description', `Pedido ${orderReference} - ${vendor.trade_name}`);
       stripeParams.set('metadata[order_id]', newOrder.id);
@@ -1030,6 +1031,19 @@ export async function handler(req: Request): Promise<Response> {
     }
     return failOrder({ error: 'DB_ERROR', message: 'Error vinculando el pago al pedido' }, 500);
   }
+
+  await recordServerEvent(supabase, {
+    eventName: 'checkout_started',
+    vendorId,
+    orderId: newOrder.id,
+    partId: dbParts.length === 1 ? dbParts[0].id : null,
+    amountCents: totalCents,
+    metadata: {
+      itemCount: dbParts.length,
+      shippingZone: shippingQuote.zone,
+      isTestOrder: isStagingTestMode,
+    },
+  });
 
   return new Response(
     JSON.stringify({

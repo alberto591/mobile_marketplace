@@ -18,7 +18,7 @@ export default function RootLayout() {
       <AppErrorBoundary>
       <StripeProvider
         publishableKey={stripePublishableKey}
-        merchantIdentifier="merchant.com.marketplace.recambios"
+        merchantIdentifier="merchant.com.buscapiezas24h.recambios"
       >
         <CartProvider>
           <FavouritesProvider>

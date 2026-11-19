@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { formatMoney, getPrimaryOEMReference } from '@mobile-marketplace/core';
+import { formatMoneyWithVat, getPrimaryOEMReference, grossCentsWithVat } from '@mobile-marketplace/core';
 import { CatTrustModal } from '../../components/CatTrustModal';
 import { CompatibilityBadge } from '../../components/CompatibilityBadge';
 import { EmptyState } from '../../components/EmptyState';
@@ -166,7 +166,7 @@ export default function PartDetailScreen() {
     await openWhatsAppContact({
       publicPhone: data.vendor.contact?.publicPhone,
       partTitle: data.part.title,
-      priceFormatted: formatMoney(data.part.price),
+      priceFormatted: formatMoneyWithVat(data.part.price),
       listingId: data.part.source.externalPartId || data.part.id.substring(0, 8),
       vendorTradeName: data.vendor.tradeName,
       primaryReference: primaryRef
@@ -196,7 +196,7 @@ export default function PartDetailScreen() {
       partId: data.part.id,
       externalPartId: data.part.source.externalPartId,
       partTitle: data.part.title,
-      priceFormatted: formatMoney(data.part.price),
+      priceFormatted: formatMoneyWithVat(data.part.price),
       vendorTradeName: data.vendor.tradeName,
       primaryReference: primaryRef
         ? {
@@ -279,9 +279,9 @@ export default function PartDetailScreen() {
           </View>
           <View style={styles.priceRow}>
             <View>
-              <Text style={styles.price}>{formatMoney(part.price)}</Text>
+              <Text style={styles.price}>{formatMoneyWithVat(part.price)}</Text>
               <Text style={styles.vatNote}>
-                Precio publicado por el desguace · + 21 % de IVA y portes en checkout
+                IVA incluido (21 %) · gastos de envío calculados en checkout
               </Text>
             </View>
 
@@ -310,7 +310,7 @@ export default function PartDetailScreen() {
 
           {/* Savings & Circular Economy Section */}
           <SavingsAndCircularCard
-            usedPriceCents={part.price.amountInCents}
+            usedPriceCents={grossCentsWithVat(part.price.amountInCents)}
             comparableNewPrice={findCuratedComparableNewPrice({
               partId: part.id,
               oemReference: getPrimaryOEMReference(part)?.normalized,
@@ -596,8 +596,8 @@ export default function PartDetailScreen() {
       {/* Floating Action Bar */}
       <View style={styles.floatingBar}>
         <View style={styles.floatingPriceBox}>
-          <Text style={styles.floatingPrice}>{formatMoney(part.price)}</Text>
-          <Text style={styles.floatingVat}>+ 21 % de IVA y portes en checkout</Text>
+          <Text style={styles.floatingPrice}>{formatMoneyWithVat(part.price)}</Text>
+          <Text style={styles.floatingVat}>IVA incluido · portes en checkout</Text>
         </View>
 
         <View style={styles.floatingActionContainer}>
