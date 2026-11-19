@@ -1,10 +1,12 @@
 // Supabase Edge Function: create-payment-intent
 // Validates selected parts against real DB, enforces single-seller invariant,
-// calculates trusted test pricing (9.50 EUR shipping, 10% platform fee, tax UNCONFIGURED),
+// calculates trusted pricing (shipping by weight and zone, 21% VAT, 10% platform fee),
 // validates seller connected-account readiness, manages stable idempotency,
 // persists parent order & seller suborder, and creates Stripe Direct Charge PaymentIntent.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { createLocalLimiter, enforceRateLimit } from '../_shared/rate-limit.ts';
+import { quoteShipping, shippingFailureMessage, vatCents } from '../_shared/shipping.ts';
 import { z } from 'https://esm.sh/zod@3.24.2';
 
 declare const Deno: {
@@ -19,35 +21,26 @@ export const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// In-memory sliding window rate limiter
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
-export const RATE_LIMIT_CACHE = new Map<string, RateLimitEntry>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-const MAX_REQUESTS_PER_WINDOW = 10;
+// 10 checkout attempts per minute and IP: in this instance's memory first, then on the
+// counter shared by all instances (check_rate_limit in PostgreSQL).
+const RATE_LIMIT_RULE = { bucket: 'create-payment-intent', max: 10, windowSeconds: 60 } as const;
+const LOCAL_LIMITER = createLocalLimiter(RATE_LIMIT_RULE.max, RATE_LIMIT_RULE.windowSeconds * 1000);
 
-export function checkRateLimit(key: string, now: number = Date.now()): { allowed: boolean; retryAfterSeconds: number } {
-  if (RATE_LIMIT_CACHE.size > 1000) {
-    for (const [k, v] of RATE_LIMIT_CACHE.entries()) {
-      if (now > v.resetAt) RATE_LIMIT_CACHE.delete(k);
+function rateLimitedResponse(retryAfterSeconds: number): Response {
+  return new Response(
+    JSON.stringify({
+      error: 'RATE_LIMIT_EXCEEDED',
+      message: 'Demasiadas solicitudes de checkout. Por favor, espera unos instantes.',
+    }),
+    {
+      status: 429,
+      headers: {
+        ...CORS_HEADERS,
+        'Content-Type': 'application/json',
+        'Retry-After': String(retryAfterSeconds),
+      },
     }
-  }
-
-  const existing = RATE_LIMIT_CACHE.get(key);
-  if (!existing || now > existing.resetAt) {
-    RATE_LIMIT_CACHE.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { allowed: true, retryAfterSeconds: 0 };
-  }
-
-  if (existing.count >= MAX_REQUESTS_PER_WINDOW) {
-    const retryAfter = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
-    return { allowed: false, retryAfterSeconds: retryAfter };
-  }
-
-  existing.count += 1;
-  return { allowed: true, retryAfterSeconds: 0 };
+  );
 }
 
 // Validation schemas
@@ -461,32 +454,11 @@ export async function handler(req: Request): Promise<Response> {
     });
   }
 
-  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown_ip';
-  const rateLimit = checkRateLimit(clientIp);
-  if (!rateLimit.allowed) {
-    return new Response(
-      JSON.stringify({
-        error: 'RATE_LIMIT_EXCEEDED',
-        message: 'Demasiadas solicitudes de checkout. Por favor, espera unos instantes.',
-      }),
-      {
-        status: 429,
-        headers: {
-          ...CORS_HEADERS,
-          'Content-Type': 'application/json',
-          'Retry-After': String(rateLimit.retryAfterSeconds),
-        },
-      }
-    );
-  }
-
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
   const stripePublishableKey = Deno.env.get('EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY') || Deno.env.get('STRIPE_PUBLISHABLE_KEY');
   const isStagingTestMode = Deno.env.get('CHECKOUT_TEST_MODE') !== 'false';
-  const isTaxUnconfigured = Deno.env.get('TAX_UNCONFIGURED') !== 'false';
-  const fixedShippingCents = parseInt(Deno.env.get('STAGING_SHIPPING_CENTS') || '950', 10);
   const commissionBasisPoints = parseInt(Deno.env.get('COMMISSION_BASIS_POINTS') || '1000', 10); // 10%
   const allowMockPaymentIntent = Deno.env.get('CHECKOUT_ALLOW_MOCK_PAYMENT_INTENT') === 'true';
   const parsedTtl = parseInt(Deno.env.get('RESERVATION_TTL_MINUTES') || '30', 10);
@@ -498,6 +470,14 @@ export async function handler(req: Request): Promise<Response> {
       { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
     );
   }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { persistSession: false },
+  });
+
+  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown_ip';
+  const rateLimit = await enforceRateLimit({ supabase, local: LOCAL_LIMITER, rule: RATE_LIMIT_RULE, key: clientIp });
+  if (!rateLimit.allowed) return rateLimitedResponse(rateLimit.retryAfterSeconds);
 
   // Strictly prevent live-mode keys while commercial gates (taxes, commercial shipping) are unconfigured
   if (stripeSecretKey && (stripeSecretKey.startsWith('sk_live_') || stripeSecretKey.startsWith('rk_live_'))) {
@@ -568,10 +548,6 @@ export async function handler(req: Request): Promise<Response> {
 
   const payload = parsed.data;
   const payloadHash = await computePayloadHash(payload);
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: { persistSession: false },
-  });
 
   const resumeCtx: ResumeContext = {
     supabase,
@@ -646,6 +622,7 @@ export async function handler(req: Request): Promise<Response> {
       external_part_id,
       title,
       price_cents,
+      weight_grams,
       availability_status,
       deleted_at,
       reserved_until,
@@ -828,19 +805,29 @@ export async function handler(req: Request): Promise<Response> {
     subtotalCents += p.price_cents;
   }
 
-  const shippingCents = isStagingTestMode ? fixedShippingCents : 0;
-  if (!isStagingTestMode) {
-    return new Response(
-      JSON.stringify({
-        error: 'COMMERCIAL_SHIPPING_UNCONFIGURED',
-        message: 'No existen tarifas de envío comerciales configuradas para producción.',
-      }),
-      { status: 422, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+  // Shipping by total weight and destination zone (the scrapyard's own rate table).
+  // No automatic price (zone not served, a part without weight, over 250 kg): the order
+  // is not created and the buyer is sent to an inquiry instead of being charged a guess.
+  const shippingQuote = quoteShipping(
+    payload.address.postalCode,
+    dbParts.map((p) => p.weight_grams as number | null)
+  );
+  if (!shippingQuote.ok) {
+    return jsonResponse(
+      {
+        error: `SHIPPING_${shippingQuote.reason}`,
+        message: shippingFailureMessage(shippingQuote),
+        shippingZone: shippingQuote.zone ?? null,
+      },
+      422
     );
   }
+  const shippingCents = shippingQuote.shippingCents;
 
-  const taxCents = 0;
-  const taxStatus = isTaxUnconfigured ? 'UNCONFIGURED' : 'NOT_APPLICABLE';
+  // General VAT regime, as in the scrapyard's own quotes: catalog prices and shipping
+  // rates are net, and 21 % applies to their sum.
+  const taxCents = vatCents(subtotalCents + shippingCents);
+  const taxStatus = 'GENERAL_21';
   const totalCents = subtotalCents + shippingCents + taxCents;
 
   // 10% platform fee on parts subtotal only

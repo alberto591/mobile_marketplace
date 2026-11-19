@@ -1,3 +1,4 @@
+import { LegalLinks } from '../components/LegalLinks';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -253,6 +254,8 @@ export default function HomeScreen() {
             </View>
           </View>
         </View>
+
+        <LegalLinks />
       </ScrollView>
     </KeyboardAvoidingView>
   );

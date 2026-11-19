@@ -3,6 +3,7 @@
 // enforces idempotency, validates contact & privacy consent, and dispatches email notifications.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { checkSharedRateLimit, createLocalLimiter } from '../_shared/rate-limit.ts';
 import { z } from 'https://esm.sh/zod@3.24.2';
 
 declare const Deno: {
@@ -17,37 +18,27 @@ export const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// In-memory sliding window rate limiter for edge instance defense
-// Limits burst attempts per IP (max 5 inquiries per minute) and overall per 10 minutes (max 20)
-interface RateLimitEntry {
-  count: number;
-  resetAt: number;
-}
-export const RATE_LIMIT_CACHE = new Map<string, RateLimitEntry>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const MAX_REQUESTS_PER_WINDOW = 5;
+// 5 inquiries per minute and IP: in this instance's memory first, then on the counter
+// shared by all instances (check_rate_limit in PostgreSQL).
+const RATE_LIMIT_RULE = { bucket: 'submit-inquiry', max: 5, windowSeconds: 60 } as const;
+const LOCAL_LIMITER = createLocalLimiter(RATE_LIMIT_RULE.max, RATE_LIMIT_RULE.windowSeconds * 1000);
 
-export function checkRateLimit(key: string, now: number = Date.now()): { allowed: boolean; retryAfterSeconds: number } {
-  // Purge expired entries if cache exceeds 1000 items
-  if (RATE_LIMIT_CACHE.size > 1000) {
-    for (const [k, v] of RATE_LIMIT_CACHE.entries()) {
-      if (now > v.resetAt) RATE_LIMIT_CACHE.delete(k);
+function rateLimitedResponse(retryAfterSeconds: number): Response {
+  return new Response(
+    JSON.stringify({
+      error: 'Too many requests',
+      message: `Has superado el límite de consultas permitidas. Inténtalo de nuevo en ${retryAfterSeconds} segundos.`,
+    }),
+    {
+      status: 429,
+      headers: {
+        ...CORS_HEADERS,
+        'Content-Type': 'application/json',
+        'Retry-After': String(retryAfterSeconds),
+        'Cache-Control': 'no-store',
+      },
     }
-  }
-
-  const existing = RATE_LIMIT_CACHE.get(key);
-  if (!existing || now > existing.resetAt) {
-    RATE_LIMIT_CACHE.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { allowed: true, retryAfterSeconds: 0 };
-  }
-
-  if (existing.count >= MAX_REQUESTS_PER_WINDOW) {
-    const retryAfter = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
-    return { allowed: false, retryAfterSeconds: retryAfter };
-  }
-
-  existing.count += 1;
-  return { allowed: true, retryAfterSeconds: 0 };
+  );
 }
 
 // Zod validation schemas
@@ -230,24 +221,9 @@ export async function handler(req: Request, options: HandlerOptions = {}): Promi
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     'anonymous_client';
 
-  const rateCheck = checkRateLimit(`ip:${clientIp}`);
-  if (!rateCheck.allowed) {
-    return new Response(
-      JSON.stringify({
-        error: 'Too many requests',
-        message: `Has superado el límite de consultas permitidas. Inténtalo de nuevo en ${rateCheck.retryAfterSeconds} segundos.`,
-      }),
-      {
-        status: 429,
-        headers: {
-          ...CORS_HEADERS,
-          'Content-Type': 'application/json',
-          'Retry-After': String(rateCheck.retryAfterSeconds),
-          'Cache-Control': 'no-store',
-        },
-      }
-    );
-  }
+  const rateKey = `ip:${clientIp}`;
+  const localCheck = LOCAL_LIMITER.check(rateKey);
+  if (!localCheck.allowed) return rateLimitedResponse(localCheck.retryAfterSeconds);
 
   // Real payloads are a few KB. Rejecting oversized bodies before parsing also keeps
   // schema validation from being fed huge collections.
@@ -302,6 +278,10 @@ export async function handler(req: Request, options: HandlerOptions = {}): Promi
     createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false },
     });
+
+  // Same limit across all instances. The request was already counted in memory above.
+  const sharedCheck = await checkSharedRateLimit(supabase, RATE_LIMIT_RULE, rateKey);
+  if (sharedCheck && !sharedCheck.allowed) return rateLimitedResponse(sharedCheck.retryAfterSeconds);
 
   const partIds = payload.items.map((it) => it.partId);
 
@@ -751,7 +731,8 @@ export async function handler(req: Request, options: HandlerOptions = {}): Promi
       error_message: deliveryError || null,
       attempt_count: notificationStatus === 'SENT' || notificationStatus === 'FAILED' ? 1 : 0,
       sent_at: notificationStatus === 'SENT' ? new Date().toISOString() : null,
-      last_attempted_at: notificationStatus !== 'PENDING' ? new Date().toISOString() : null,
+      // The status is always final here (sent, failed or skipped), never PENDING.
+      last_attempted_at: new Date().toISOString(),
     });
 
     // Update inquiry status

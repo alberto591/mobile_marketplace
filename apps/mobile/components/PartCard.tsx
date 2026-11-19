@@ -191,7 +191,7 @@ export function PartCard({ item }: Props) {
         <View style={styles.priceFooter}>
           <View style={styles.priceBlock}>
             <Text style={styles.price}>{formatMoney(part.price)}</Text>
-            <Text style={styles.vatNote}>Impuestos y portes en checkout</Text>
+            <Text style={styles.vatNote}>+ 21 % de IVA y portes en checkout</Text>
           </View>
           <View style={styles.viewDetailPill}>
             <Text style={styles.viewDetailText}>Ver pieza</Text>

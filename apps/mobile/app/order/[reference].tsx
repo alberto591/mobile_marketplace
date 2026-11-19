@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,6 +10,9 @@ import {
   View,
 } from 'react-native';
 import { useCart } from '../../services/cart-context';
+import { AsyncStorageCartStorage } from '../../services/cart-storage';
+import { extractOrderToken } from '../../services/order-link';
+import { listOrderHistory } from '../../services/pending-orders.service';
 import type { OrderDetail } from '../../services/checkout.service';
 import { checkoutService } from '../../services/checkout.service';
 import { borderRadius, colors, spacing } from '../../theme/index';
@@ -22,8 +26,32 @@ export default function OrderDetailScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const reference = params.reference;
-  const token = params.token;
   const orderedPartIds = params.orderedPartIds;
+
+  // undefined = still resolving; null = no usable token for this order.
+  const [token, setToken] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    let isMounted = true;
+    const hash = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.hash : null;
+    const direct = extractOrderToken({ hash, paramToken: params.token });
+    if (direct) {
+      setToken(direct);
+      return;
+    }
+    // Opened without a token (e.g. a web address typed or restored without its fragment):
+    // this device may still know the order from "Mis pedidos".
+    listOrderHistory(new AsyncStorageCartStorage())
+      .then((history) => {
+        if (isMounted) setToken(history.find((o) => o.reference === reference)?.accessToken ?? null);
+      })
+      .catch(() => {
+        if (isMounted) setToken(null);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [params.token, reference]);
 
   useEffect(() => {
     let isMounted = true;
@@ -41,6 +69,7 @@ export default function OrderDetailScreen() {
     };
 
     async function fetchOrder() {
+      if (token === undefined) return; // resolved by the effect above; this one re-runs then
       if (!token) {
         if (isMounted) {
           setError('No se proporcionó token de acceso seguro para el pedido.');
@@ -248,6 +277,14 @@ export default function OrderDetailScreen() {
                 {(suborder.shippingCents / 100).toFixed(2).replace('.', ',')} EUR
               </Text>
             </View>
+            {suborder.totalCents - suborder.subtotalCents - suborder.shippingCents > 0 && (
+              <View style={styles.breakdownRow}>
+                <Text style={styles.breakdownLabel}>IVA (21 %)</Text>
+                <Text style={styles.breakdownValue}>
+                  {((suborder.totalCents - suborder.subtotalCents - suborder.shippingCents) / 100).toFixed(2).replace('.', ',')} EUR
+                </Text>
+              </View>
+            )}
             <View style={styles.breakdownRow}>
               <Text style={styles.breakdownLabel}>Total subpedido</Text>
               <Text style={[styles.breakdownValue, { fontWeight: '700' }]}>

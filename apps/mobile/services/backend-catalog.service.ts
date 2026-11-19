@@ -46,6 +46,7 @@ export interface PublicCatalogPartRow {
   readonly availability_status: string;
   readonly stock_quantity: number;
   readonly warranty_months: number;
+  readonly weight_grams?: number | null;
   readonly source_updated_at: string;
   readonly last_synced_at: string;
   readonly vendor: {
@@ -161,6 +162,7 @@ export function mapRowToPart(row: PublicCatalogPartRow, supabaseBaseUrl?: string
       })
     ),
     warrantyMonths: row.warranty_months ?? 12,
+    weightGrams: typeof row.weight_grams === 'number' && row.weight_grams > 0 ? row.weight_grams : undefined,
     sourceUpdatedAt: row.source_updated_at ? new Date(row.source_updated_at) : undefined,
     lastSyncedAt: new Date(row.last_synced_at),
     createdAt: new Date(row.last_synced_at),

@@ -46,12 +46,12 @@ jobs:
         with:
           deno-version: v2.x
 
-      # submit-inquiry and image-proxy have known, harmless type errors and are not
-      # checked yet; add them here once those are fixed.
       - name: Typecheck Edge Functions
         run: |
           deno check \
             supabase/functions/create-payment-intent/index.ts \
             supabase/functions/stripe-webhook/index.ts \
             supabase/functions/eurodesguace-sync/index.ts \
-            supabase/functions/vendor-order/index.ts
+            supabase/functions/vendor-order/index.ts \
+            supabase/functions/submit-inquiry/index.ts \
+            supabase/functions/image-proxy/index.ts

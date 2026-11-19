@@ -111,6 +111,22 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="legal/index"
+              options={{
+                title: 'Información legal',
+                headerBackTitle: 'Atrás',
+                headerRight: () => null,
+              }}
+            />
+            <Stack.Screen
+              name="legal/[slug]"
+              options={{
+                title: 'Información legal',
+                headerBackTitle: 'Atrás',
+                headerRight: () => null,
+              }}
+            />
+            <Stack.Screen
               name="confirm-availability"
               options={{
                 title: 'Confirmar disponibilidad',

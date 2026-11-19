@@ -176,6 +176,7 @@ export function buildSellerOrderEmail(
     <table style="font-size: 14px;">
       <tr><td style="padding: 2px 12px 2px 0;">Piezas</td><td style="text-align: right;">${formatCents(order.subtotalCents, order.currency)}</td></tr>
       <tr><td style="padding: 2px 12px 2px 0;">Envío</td><td style="text-align: right;">${formatCents(order.shippingCents, order.currency)}</td></tr>
+      ${order.taxCents > 0 ? `<tr><td style="padding: 2px 12px 2px 0;">IVA (21 %)</td><td style="text-align: right;">${formatCents(order.taxCents, order.currency)}</td></tr>` : ''}
       <tr><td style="padding: 2px 12px 2px 0;">Total cobrado al cliente</td><td style="text-align: right;">${formatCents(order.totalCents, order.currency)}</td></tr>
       <tr><td style="padding: 2px 12px 2px 0;">Comisión de la plataforma</td><td style="text-align: right;">-${formatCents(order.platformFeeCents, order.currency)}</td></tr>
       <tr><td style="padding: 2px 12px 2px 0;"><b>Importe neto para el desguace</b></td><td style="text-align: right;"><b>${formatCents(order.sellerNetCents, order.currency)}</b></td></tr>
@@ -211,6 +212,7 @@ export function buildBuyerOrderEmail(
     <table style="font-size: 14px; margin-top: 12px;">
       <tr><td style="padding: 2px 12px 2px 0;">Piezas</td><td style="text-align: right;">${formatCents(order.subtotalCents, order.currency)}</td></tr>
       <tr><td style="padding: 2px 12px 2px 0;">Envío</td><td style="text-align: right;">${formatCents(order.shippingCents, order.currency)}</td></tr>
+      ${order.taxCents > 0 ? `<tr><td style="padding: 2px 12px 2px 0;">IVA (21 %)</td><td style="text-align: right;">${formatCents(order.taxCents, order.currency)}</td></tr>` : ''}
       <tr><td style="padding: 2px 12px 2px 0;"><b>Total pagado</b></td><td style="text-align: right;"><b>${formatCents(order.totalCents, order.currency)}</b></td></tr>
     </table>
 

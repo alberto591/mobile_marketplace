@@ -9,3 +9,4 @@ export * from './part.js';
 export * from './product-identity.js';
 export * from './inquiry.js';
 export * from './order.js';
+export * from './shipping.js';

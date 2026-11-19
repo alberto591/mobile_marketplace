@@ -1,6 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
+import type { Href } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { EmptyState } from '../components/EmptyState';
 import { AsyncStorageCartStorage } from '../services/cart-storage';
@@ -8,6 +9,7 @@ import { checkoutService } from '../services/checkout.service';
 import type { OrderDetail } from '../services/checkout.service';
 import { listOrderHistory } from '../services/pending-orders.service';
 import type { PendingOrder } from '../services/pending-orders.service';
+import { buildOrderHref } from '../services/order-link';
 import { describeOrderStatus } from '../services/order-status';
 import { borderRadius, colors, spacing } from '../theme/index';
 
@@ -96,10 +98,9 @@ export default function OrdersScreen() {
           <Pressable
             style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
             onPress={() =>
-              router.push({
-                pathname: '/order/[reference]',
-                params: { reference: entry.reference, token: entry.accessToken },
-              })
+              router.push(
+                buildOrderHref({ reference: entry.reference, accessToken: entry.accessToken }, Platform.OS) as Href
+              )
             }
             accessibilityRole="button"
             accessibilityLabel={`Pedido ${entry.reference}, ${status?.label ?? 'estado no disponible'}`}

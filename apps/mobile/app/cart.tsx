@@ -158,7 +158,7 @@ export default function CartScreen() {
                         <Text style={styles.itemPrice}>
                           {formatMoney(item.part.price)}
                         </Text>
-                        <Text style={styles.itemVat}>Impuestos y portes en checkout</Text>
+                        <Text style={styles.itemVat}>+ 21 % de IVA y portes en checkout</Text>
                       </View>
                     </View>
 

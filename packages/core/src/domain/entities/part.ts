@@ -39,6 +39,8 @@ export interface Part {
   readonly oemReferences: readonly OEMReference[];
   readonly images: readonly PartImage[];
   readonly warrantyMonths: number;
+  /** Weight in grams, used to price shipping. Undefined when unknown. */
+  readonly weightGrams?: number;
   readonly sourceUpdatedAt?: Date;
   readonly lastSyncedAt: Date;
   readonly createdAt: Date;

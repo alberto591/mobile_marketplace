@@ -328,7 +328,8 @@ export async function handler(req: Request, customFetch?: typeof fetch): Promise
     }
 
     // 5. Successful delivery with public immutable cache
-    return new Response(bodyResult.buffer, {
+    // Uint8Array is a valid response body at runtime; newer TS lib typings need the cast.
+    return new Response(bodyResult.buffer as unknown as BodyInit, {
       status: 200,
       headers: {
         ...CORS_HEADERS,

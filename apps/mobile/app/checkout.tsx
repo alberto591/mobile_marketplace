@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import type { Href } from 'expo-router';
 import React, { useId, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,9 +14,10 @@ import {
   View,
 } from 'react-native';
 import { initStripe, useStripe } from '../services/stripe-client';
-import { formatMoney } from '@mobile-marketplace/core';
+import { formatMoney, quoteShipping, shippingFailureMessage, vatCents } from '@mobile-marketplace/core';
 import { useCart } from '../services/cart-context';
 import { AsyncStorageCartStorage } from '../services/cart-storage';
+import { buildOrderHref } from '../services/order-link';
 import { rememberOrderInHistory, rememberPendingOrder } from '../services/pending-orders.service';
 import { CheckoutError, checkoutService } from '../services/checkout.service';
 import type { CheckoutPricingResponse } from '../services/checkout.service';
@@ -71,15 +73,38 @@ export default function CheckoutScreen() {
   // The server is the pricing authority (it recomputes from the live catalog). Until it
   // answers, the breakdown is an estimate from the cart snapshot; once it answers, the
   // screen shows exactly what will be charged.
-  const cartKey = useMemo(() => activeItems.map((i) => i.part.id).sort().join(','), [activeItems]);
+  // Shipping depends on the postal code, so a confirmed price only holds for the same
+  // parts AND the same postal code.
+  const cartKey = useMemo(
+    () => `${activeItems.map((i) => i.part.id).sort().join(',')}|${postalCode.trim()}`,
+    [activeItems, postalCode]
+  );
   const [confirmedPricing, setConfirmedPricing] = useState<{ cartKey: string; pricing: CheckoutPricingResponse } | null>(null);
   const serverPricing = confirmedPricing?.cartKey === cartKey ? confirmedPricing.pricing : null;
 
-  const ESTIMATED_SHIPPING_CENTS = 950;
+  // Shipping by total weight and destination zone, same table the server applies.
+  const postalCodeComplete = /^\d{5}$/.test(postalCode.trim());
+  const shippingEstimate = useMemo(
+    () => quoteShipping(postalCode, activeItems.map((i) => i.part.weightGrams)),
+    [postalCode, activeItems]
+  );
+  const estimatedShippingCents = shippingEstimate.ok ? shippingEstimate.shippingCents : null;
   const displaySubtotalCents = serverPricing?.subtotalCents ?? subtotalCents;
-  const shippingCents = serverPricing?.shippingCents ?? ESTIMATED_SHIPPING_CENTS;
-  const taxCents = serverPricing?.taxCents ?? 0;
-  const totalCents = serverPricing?.totalCents ?? subtotalCents + ESTIMATED_SHIPPING_CENTS;
+  const shippingCents: number | null = serverPricing?.shippingCents ?? estimatedShippingCents;
+  const estimatedTaxCents = vatCents(subtotalCents + (estimatedShippingCents ?? 0));
+  const taxCents = serverPricing?.taxCents ?? estimatedTaxCents;
+  const totalCents = serverPricing?.totalCents ?? subtotalCents + (estimatedShippingCents ?? 0) + estimatedTaxCents;
+  // The cart may hold parts saved before weights existed: only a zone we do not ship to is
+  // certain on the device. Anything else is left for the server to decide.
+  const shippingNote = serverPricing
+    ? null
+    : !postalCodeComplete
+      ? 'Indica el código postal para calcular el envío.'
+      : shippingEstimate.ok
+        ? null
+        : shippingEstimate.reason === 'WEIGHT_UNKNOWN'
+          ? 'El envío se calcula al pulsar "Pagar".'
+          : shippingFailureMessage(shippingEstimate);
   const isTestOrder = serverPricing?.isTestOrder ?? process.env.EXPO_PUBLIC_CHECKOUT_TEST_MODE !== 'false';
   const formatCents = (cents: number) => `${(cents / 100).toFixed(2).replace('.', ',')} EUR`;
 
@@ -113,6 +138,11 @@ export default function CheckoutScreen() {
       return false;
     }
 
+    if (!shippingEstimate.ok && shippingEstimate.reason === 'ZONE_NOT_SERVED') {
+      setErrorMessage(shippingFailureMessage(shippingEstimate));
+      return false;
+    }
+
     if (!city.trim() || city.trim().length < 2) {
       setErrorMessage('Por favor, indica la localidad de entrega.');
       return false;
@@ -141,10 +171,7 @@ export default function CheckoutScreen() {
     const partIds = activeItems.map((i) => i.part.id);
     // orderedPartIds: cart items the order screen removes once the backend confirms payment.
     const goToOrder = (reference: string, token: string, orderedPartIds: readonly string[] = partIds) =>
-      router.replace({
-        pathname: '/order/[reference]',
-        params: { reference, token, orderedPartIds: JSON.stringify(orderedPartIds) },
-      });
+      router.replace(buildOrderHref({ reference, accessToken: token, orderedPartIds }, Platform.OS) as Href);
 
     try {
       const contact = {
@@ -301,7 +328,7 @@ export default function CheckoutScreen() {
           </View>
           <Text style={styles.stagingBannerTitle}>Entorno de simulación de pagos Stripe Connect</Text>
           <Text style={styles.stagingBannerText}>
-            No se realizarán cobros reales en tu tarjeta bancaria. Los impuestos figuran sin calcular (0,00 EUR) y los portes están fijados en 9,50 EUR a efectos de prueba técnica.
+            No se realizarán cobros reales en tu tarjeta bancaria. Los precios llevan el 21 % de IVA añadido y los portes se calculan con la tarifa del desguace según el peso del pedido y la zona de entrega.
           </Text>
         </View>
 
@@ -442,34 +469,33 @@ export default function CheckoutScreen() {
           <Text style={styles.sectionTitle}>3. Resumen y desglose de costes</Text>
 
           <View style={styles.breakdownRow}>
-            <Text style={styles.breakdownLabel}>Subtotal recambios ({activeItems.length})</Text>
+            <Text style={styles.breakdownLabel}>Recambios sin IVA ({activeItems.length})</Text>
             <Text style={styles.breakdownValue}>{formatCents(displaySubtotalCents)}</Text>
           </View>
 
           <View style={styles.breakdownRow}>
             <Text style={styles.breakdownLabel}>
-              {isTestOrder ? 'Gastos de envío (tarifa de pruebas)' : 'Gastos de envío'}
-              {serverPricing ? '' : ' (estimado)'}
+              Gastos de envío sin IVA
+              {shippingEstimate.ok && !serverPricing ? ` (${(shippingEstimate.totalWeightGrams / 1000).toFixed(1).replace('.', ',')} kg)` : ''}
             </Text>
-            <Text style={styles.breakdownValue}>{formatCents(shippingCents)}</Text>
+            <Text style={styles.breakdownValue}>{shippingCents === null ? '—' : formatCents(shippingCents)}</Text>
           </View>
+          {Boolean(shippingNote) && (
+            <View style={styles.taxNotice}>
+              <Text style={styles.taxNoticeText}>{shippingNote}</Text>
+            </View>
+          )}
 
           <View style={styles.breakdownRow}>
-            <Text style={styles.breakdownLabel}>Impuestos aplicables (IVA / REBU)</Text>
-            <Text style={[styles.breakdownValue, { color: colors.warning }]}>{formatCents(taxCents)} *</Text>
-          </View>
-
-          <View style={styles.taxNotice}>
-            <Text style={styles.taxNoticeText}>
-              * Régimen fiscal pendiente de configuración. El importe total mostrado no representa una oferta comercial definitiva.
-            </Text>
+            <Text style={styles.breakdownLabel}>IVA (21 %)</Text>
+            <Text style={[styles.breakdownValue, { color: colors.warning }]}>{formatCents(taxCents)}</Text>
           </View>
 
           <View style={styles.totalDivider} />
 
           <View style={styles.breakdownRow}>
             <Text style={styles.totalLabel}>
-              {serverPricing ? 'Total a pagar' : 'Total estimado'}
+              {serverPricing ? 'Total a pagar' : shippingCents === null ? 'Total sin envío' : 'Total estimado'}
               {isTestOrder ? ' (pruebas)' : ''}
             </Text>
             <Text style={styles.totalValue}>{formatCents(totalCents)}</Text>
@@ -482,6 +508,22 @@ export default function CheckoutScreen() {
             <Text style={styles.errorText}>{errorMessage}</Text>
           </View>
         )}
+
+        <Text style={styles.legalAcceptance}>
+          Al pulsar «Pagar» aceptas las{' '}
+          <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/condiciones' as Href)}>
+            Condiciones de compra
+          </Text>{' '}
+          y la{' '}
+          <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/devoluciones' as Href)}>
+            Política de devoluciones y garantía
+          </Text>
+          , y confirmas que has leído la{' '}
+          <Text style={styles.legalLink} accessibilityRole="link" onPress={() => router.push('/legal/privacidad' as Href)}>
+            Política de privacidad
+          </Text>
+          .
+        </Text>
 
         {/* Pay Button */}
         <Pressable
@@ -503,6 +545,19 @@ export default function CheckoutScreen() {
 }
 
 const styles = StyleSheet.create({
+  legalAcceptance: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  legalLink: {
+    color: colors.textPrimary,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.background,

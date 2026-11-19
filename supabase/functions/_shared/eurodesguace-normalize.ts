@@ -2,6 +2,8 @@
 // database function. Dependency-free so it runs in Deno and in unit tests.
 // Mirrors packages/core (normalizeOEMReference, parseEuroCommaToCents): keep them in step.
 
+import { parseWeightKgToGrams } from './shipping.ts';
+
 export interface IngestPart {
   externalPartId: string;
   sourceSku: string | null;
@@ -19,6 +21,8 @@ export interface IngestPart {
   referenceNormalized: string | null;
   referenceType: 'REFERENCIA_VISUAL';
   images: string[];
+  /** Integer grams; null when the provider sent no usable weight. */
+  weightGrams: number | null;
 }
 
 const text = (value: unknown): string | null => {
@@ -84,6 +88,7 @@ export function normalizeEurodesguacePart(raw: any): IngestPart | null {
     referenceNormalized: referenceRaw ? normalizeReference(referenceRaw) : null,
     referenceType: 'REFERENCIA_VISUAL',
     images: Array.isArray(raw.imgs) ? raw.imgs.filter(isHttpUrl).map((u: string) => u.trim()) : [],
+    weightGrams: parseWeightKgToGrams(raw.peso),
   };
 }
 

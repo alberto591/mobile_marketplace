@@ -281,7 +281,7 @@ export default function PartDetailScreen() {
             <View>
               <Text style={styles.price}>{formatMoney(part.price)}</Text>
               <Text style={styles.vatNote}>
-                Precio publicado por el desguace · Impuestos y portes por confirmar
+                Precio publicado por el desguace · + 21 % de IVA y portes en checkout
               </Text>
             </View>
 
@@ -597,7 +597,7 @@ export default function PartDetailScreen() {
       <View style={styles.floatingBar}>
         <View style={styles.floatingPriceBox}>
           <Text style={styles.floatingPrice}>{formatMoney(part.price)}</Text>
-          <Text style={styles.floatingVat}>Impuestos y portes por confirmar</Text>
+          <Text style={styles.floatingVat}>+ 21 % de IVA y portes en checkout</Text>
         </View>
 
         <View style={styles.floatingActionContainer}>
