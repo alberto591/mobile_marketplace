@@ -75,6 +75,10 @@ export const CheckoutInitSchema = z.object({
   address: DeliveryAddressSchema,
   partIds: z.array(z.string().uuid()).min(1).max(10),
   idempotencyKey: z.string().trim().min(10).max(120),
+  // Access token of an unpaid order this client created earlier in the same checkout
+  // (e.g. the buyer cancelled the sheet and then edited the address). Its parts are
+  // released so the new order can reserve them.
+  previousOrderAccessToken: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 
 export type CheckoutInitPayload = z.infer<typeof CheckoutInitSchema>;
@@ -113,6 +117,336 @@ export async function computePayloadHash(payload: CheckoutInitPayload): Promise<
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+// ---------------------------------------------------------------------------
+// Part reservations & PaymentIntent lifecycle
+// ---------------------------------------------------------------------------
+
+// deno-lint-ignore no-explicit-any
+type SupabaseClient = any;
+
+export const ORDER_SELECT = `
+  id,
+  order_reference,
+  total_products_cents,
+  total_shipping_cents,
+  total_tax_cents,
+  total_order_cents,
+  tax_status,
+  is_test_order,
+  payload_hash,
+  access_token,
+  status,
+  order_suborders (
+    id,
+    suborder_reference,
+    stripe_account_id,
+    stripe_payment_intent_id,
+    platform_fee_cents,
+    payment_status,
+    order_items ( part_id )
+  )
+`;
+
+// Orders whose PaymentIntent can still be paid. PAYMENT_FAILED is included because a
+// declined card leaves the PaymentIntent in requires_payment_method: the buyer can retry.
+const RESUMABLE_ORDER_STATUSES = new Set(['PENDING_PAYMENT', 'PAYMENT_FAILED']);
+const SETTLED_ORDER_STATUSES = new Set(['PAYMENT_PROCESSING', 'PAID', 'PARTIALLY_PAID', 'PROCESSING', 'COMPLETED']);
+
+export function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', ...extraHeaders },
+  });
+}
+
+export function isRealStripePaymentIntentId(id: string | null | undefined): id is string {
+  return typeof id === 'string' && id.startsWith('pi_') && !id.startsWith('pi_staging_mock_');
+}
+
+interface StripePaymentIntentSummary {
+  id: string;
+  status: string;
+  client_secret: string | null;
+}
+
+async function stripeRetrievePaymentIntent(
+  paymentIntentId: string,
+  stripeAccountId: string,
+  stripeSecretKey: string
+): Promise<StripePaymentIntentSummary> {
+  const res = await fetch(`https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`, {
+    headers: { Authorization: `Bearer ${stripeSecretKey}`, 'Stripe-Account': stripeAccountId },
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body?.error?.message || `Stripe HTTP ${res.status}`);
+  }
+  return { id: body.id, status: body.status, client_secret: body.client_secret ?? null };
+}
+
+/**
+ * Cancels a PaymentIntent in Stripe. Returns the PaymentIntent's final state:
+ * 'canceled' when it can no longer be paid, 'paid' when it already succeeded or is processing.
+ */
+async function stripeCancelPaymentIntent(
+  paymentIntentId: string,
+  stripeAccountId: string,
+  stripeSecretKey: string
+): Promise<'canceled' | 'paid'> {
+  const res = await fetch(`https://api.stripe.com/v1/payment_intents/${encodeURIComponent(paymentIntentId)}/cancel`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${stripeSecretKey}`,
+      'Stripe-Account': stripeAccountId,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'cancellation_reason=abandoned',
+  });
+  if (res.ok) return 'canceled';
+
+  // Cancel fails when the PaymentIntent is already canceled, processing or succeeded: read its state.
+  const current = await stripeRetrievePaymentIntent(paymentIntentId, stripeAccountId, stripeSecretKey);
+  if (current.status === 'canceled') return 'canceled';
+  if (current.status === 'succeeded' || current.status === 'processing') return 'paid';
+  throw new Error(`No se pudo cancelar el PaymentIntent ${paymentIntentId} (estado: ${current.status})`);
+}
+
+/** Marks an unpaid order as cancelled and returns its parts to the catalog. */
+export async function cancelOrderAndReleaseParts(supabase: SupabaseClient, orderId: string): Promise<void> {
+  const now = new Date().toISOString();
+  await supabase
+    .from('order_suborders')
+    .update({ payment_status: 'CANCELLED', fulfillment_status: 'CANCELLED', updated_at: now })
+    .eq('order_id', orderId)
+    .in('payment_status', ['PENDING', 'FAILED']);
+  await supabase
+    .from('orders')
+    .update({ status: 'CANCELLED', updated_at: now })
+    .eq('id', orderId)
+    .in('status', ['PENDING_PAYMENT', 'PAYMENT_FAILED']);
+  const { error } = await supabase.rpc('release_order_reservations', { p_order_id: orderId });
+  if (error) {
+    throw new Error(`Error liberando reservas del pedido ${orderId}: ${error.message}`);
+  }
+}
+
+/**
+ * Cancels another unpaid order (its PaymentIntent in Stripe first) and releases its parts.
+ * Returns 'paid' if that order turned out to be paid, in which case nothing is released.
+ */
+export async function abandonUnpaidOrder(
+  supabase: SupabaseClient,
+  orderId: string,
+  stripeSecretKey: string | undefined
+): Promise<'cancelled' | 'paid'> {
+  const { data: suborders, error } = await supabase
+    .from('order_suborders')
+    .select('stripe_payment_intent_id, stripe_account_id, payment_status')
+    .eq('order_id', orderId);
+  if (error) throw new Error(`Error consultando subpedidos del pedido ${orderId}: ${error.message}`);
+
+  for (const s of suborders ?? []) {
+    if (s.payment_status === 'SUCCEEDED' || s.payment_status === 'PROCESSING') return 'paid';
+  }
+
+  for (const s of suborders ?? []) {
+    if (!isRealStripePaymentIntentId(s.stripe_payment_intent_id)) continue;
+    if (!stripeSecretKey) {
+      throw new Error('STRIPE_SECRET_KEY no configurado: no se puede cancelar el PaymentIntent anterior');
+    }
+    const outcome = await stripeCancelPaymentIntent(s.stripe_payment_intent_id, s.stripe_account_id, stripeSecretKey);
+    if (outcome === 'paid') return 'paid';
+  }
+
+  await cancelOrderAndReleaseParts(supabase, orderId);
+  return 'cancelled';
+}
+
+export type ReservationResult = { ok: true } | { ok: false; conflictPartIds: string[] };
+
+/**
+ * Reserves every part of an order atomically. Expired reservations held by other
+ * orders are taken over only after those orders' PaymentIntents are cancelled.
+ */
+export async function reservePartsForOrder(
+  supabase: SupabaseClient,
+  orderId: string,
+  partIds: string[],
+  ttlMinutes: number,
+  stripeSecretKey: string | undefined
+): Promise<ReservationResult> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data, error } = await supabase.rpc('reserve_parts_for_order', {
+      p_order_id: orderId,
+      p_part_ids: partIds,
+      p_ttl_minutes: ttlMinutes,
+    });
+    if (error) throw new Error(`Error reservando piezas: ${error.message}`);
+
+    if (data?.ok) return { ok: true };
+
+    const conflictPartIds: string[] = data?.conflictPartIds ?? [];
+    if (conflictPartIds.length > 0) return { ok: false, conflictPartIds };
+
+    const staleOrderIds: string[] = data?.staleOrderIds ?? [];
+    if (staleOrderIds.length === 0) return { ok: false, conflictPartIds: partIds };
+
+    for (const staleOrderId of staleOrderIds) {
+      const outcome = await abandonUnpaidOrder(supabase, staleOrderId, stripeSecretKey);
+      if (outcome === 'paid') return { ok: false, conflictPartIds: partIds };
+    }
+  }
+  return { ok: false, conflictPartIds: partIds };
+}
+
+export function partNotAvailableResponse(conflictPartIds: string[]): Response {
+  return jsonResponse(
+    {
+      error: 'PART_NOT_AVAILABLE',
+      message: 'Una o más piezas acaban de ser reservadas o vendidas a otro comprador. Revisa tu carrito.',
+      conflictPartIds,
+    },
+    409
+  );
+}
+
+interface ResumeContext {
+  supabase: SupabaseClient;
+  stripeSecretKey: string | undefined;
+  stripePublishableKey: string | undefined;
+  allowMockPaymentIntent: boolean;
+  reservationTtlMinutes: number;
+  payloadHash: string;
+}
+
+// deno-lint-ignore no-explicit-any
+function orderResponseBody(order: any, suborder: any, clientSecret: string | null, status: string) {
+  return {
+    success: true,
+    orderReference: order.order_reference,
+    suborderReference: suborder?.suborder_reference,
+    accessToken: order.access_token,
+    clientSecret,
+    stripeAccountId: suborder?.stripe_account_id,
+    pricing: {
+      subtotalCents: order.total_products_cents,
+      shippingCents: order.total_shipping_cents,
+      taxCents: order.total_tax_cents,
+      totalCents: order.total_order_cents,
+      platformFeeCents: suborder?.platform_fee_cents ?? 0,
+      isTestOrder: order.is_test_order,
+      taxStatus: order.tax_status,
+    },
+    status,
+  };
+}
+
+/**
+ * Idempotent retry of a checkout (same idempotency key): e.g. the buyer cancelled the
+ * PaymentSheet and taps Pay again, or the first response was lost. Returns the real
+ * client_secret of the existing PaymentIntent and renews the part reservation.
+ */
+// deno-lint-ignore no-explicit-any
+export async function resumeExistingOrder(ctx: ResumeContext, existingOrder: any): Promise<Response> {
+  if (existingOrder.payload_hash !== ctx.payloadHash) {
+    return jsonResponse(
+      {
+        error: 'IDEMPOTENCY_CONFLICT',
+        message: 'Esta clave de idempotencia ya fue utilizada para un pedido con piezas o datos de entrega diferentes.',
+      },
+      409
+    );
+  }
+
+  const suborder = existingOrder.order_suborders?.[0];
+  const withKey = (body: Record<string, unknown>) => ({ ...body, publishableKey: ctx.stripePublishableKey ?? null });
+
+  if (SETTLED_ORDER_STATUSES.has(existingOrder.status)) {
+    return jsonResponse(withKey(orderResponseBody(existingOrder, suborder, null, existingOrder.status)), 200);
+  }
+
+  if (!RESUMABLE_ORDER_STATUSES.has(existingOrder.status)) {
+    return jsonResponse(
+      {
+        error: 'ORDER_NOT_PAYABLE',
+        message: 'Este intento de pago ya no está activo. Vuelve a pulsar "Pagar" para iniciar uno nuevo.',
+        status: existingOrder.status,
+      },
+      409
+    );
+  }
+
+  const paymentIntentId: string | null = suborder?.stripe_payment_intent_id ?? null;
+  if (!paymentIntentId) {
+    // The first request is still creating the PaymentIntent.
+    return jsonResponse(
+      { error: 'CHECKOUT_IN_PROGRESS', message: 'Estamos preparando tu pago. Inténtalo de nuevo en unos segundos.' },
+      409,
+      { 'Retry-After': '2' }
+    );
+  }
+
+  let clientSecret: string;
+  if (isRealStripePaymentIntentId(paymentIntentId)) {
+    if (!ctx.stripeSecretKey) {
+      return jsonResponse({ error: 'CONFIG_ERROR', message: 'STRIPE_SECRET_KEY no configurado.' }, 500);
+    }
+    let pi: StripePaymentIntentSummary;
+    try {
+      pi = await stripeRetrievePaymentIntent(paymentIntentId, suborder.stripe_account_id, ctx.stripeSecretKey);
+    } catch (err: any) {
+      return jsonResponse({ error: 'STRIPE_NETWORK_ERROR', message: 'Error de red conectando con Stripe', details: err.message }, 502);
+    }
+
+    if (pi.status === 'succeeded' || pi.status === 'processing') {
+      return jsonResponse(withKey(orderResponseBody(existingOrder, suborder, null, 'PAYMENT_PROCESSING')), 200);
+    }
+    if (pi.status === 'canceled' || !pi.client_secret) {
+      await cancelOrderAndReleaseParts(ctx.supabase, existingOrder.id);
+      return jsonResponse(
+        {
+          error: 'ORDER_NOT_PAYABLE',
+          message: 'Este intento de pago ha caducado. Vuelve a pulsar "Pagar" para iniciar uno nuevo.',
+          status: 'CANCELLED',
+        },
+        409
+      );
+    }
+    clientSecret = pi.client_secret;
+  } else if (ctx.allowMockPaymentIntent) {
+    clientSecret = `${paymentIntentId}_secret_mock`;
+  } else {
+    return jsonResponse({ error: 'CONFIG_ERROR', message: 'PaymentIntent simulado con el modo mock desactivado.' }, 500);
+  }
+
+  // Renew the reservation so the parts stay held while the buyer pays.
+  const partIds: string[] = (suborder.order_items ?? []).map((i: { part_id: string }) => i.part_id);
+  const reservation = await reservePartsForOrder(
+    ctx.supabase,
+    existingOrder.id,
+    partIds,
+    ctx.reservationTtlMinutes,
+    ctx.stripeSecretKey
+  );
+  if (!reservation.ok) {
+    if (isRealStripePaymentIntentId(paymentIntentId) && ctx.stripeSecretKey) {
+      try {
+        const outcome = await stripeCancelPaymentIntent(paymentIntentId, suborder.stripe_account_id, ctx.stripeSecretKey);
+        if (outcome === 'paid') {
+          return jsonResponse(withKey(orderResponseBody(existingOrder, suborder, null, 'PAYMENT_PROCESSING')), 200);
+        }
+      } catch {
+        // Keep the order pending: the webhook will settle it.
+        return partNotAvailableResponse(reservation.conflictPartIds);
+      }
+    }
+    await cancelOrderAndReleaseParts(ctx.supabase, existingOrder.id);
+    return partNotAvailableResponse(reservation.conflictPartIds);
+  }
+
+  return jsonResponse(withKey(orderResponseBody(existingOrder, suborder, clientSecret, 'PENDING_PAYMENT')), 200);
 }
 
 export async function handler(req: Request): Promise<Response> {
@@ -155,6 +489,8 @@ export async function handler(req: Request): Promise<Response> {
   const fixedShippingCents = parseInt(Deno.env.get('STAGING_SHIPPING_CENTS') || '950', 10);
   const commissionBasisPoints = parseInt(Deno.env.get('COMMISSION_BASIS_POINTS') || '1000', 10); // 10%
   const allowMockPaymentIntent = Deno.env.get('CHECKOUT_ALLOW_MOCK_PAYMENT_INTENT') === 'true';
+  const parsedTtl = parseInt(Deno.env.get('RESERVATION_TTL_MINUTES') || '30', 10);
+  const reservationTtlMinutes = Number.isFinite(parsedTtl) ? Math.min(Math.max(parsedTtl, 5), 120) : 30;
 
   if (!supabaseUrl || !supabaseServiceKey) {
     return new Response(
@@ -195,9 +531,21 @@ export async function handler(req: Request): Promise<Response> {
     );
   }
 
+  // Real payloads are a few KB. Rejecting oversized bodies before parsing also keeps
+  // schema validation from being fed huge collections.
+  const MAX_BODY_BYTES = 64 * 1024;
+  if (Number(req.headers.get('content-length') || '0') > MAX_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', message: 'La petición es demasiado grande' }), {
+      status: 413,
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    });
+  }
+
   let body: unknown;
   try {
-    body = await req.json();
+    const rawBody = await req.text();
+    if (rawBody.length > MAX_BODY_BYTES) throw new Error('payload too large');
+    body = JSON.parse(rawBody);
   } catch {
     return new Response(JSON.stringify({ error: 'INVALID_JSON', message: 'El cuerpo de la petición no es un JSON válido' }), {
       status: 400,
@@ -225,84 +573,68 @@ export async function handler(req: Request): Promise<Response> {
     auth: { persistSession: false },
   });
 
+  const resumeCtx: ResumeContext = {
+    supabase,
+    stripeSecretKey,
+    stripePublishableKey,
+    allowMockPaymentIntent,
+    reservationTtlMinutes,
+    payloadHash,
+  };
+
+  // 0. The buyer changed the checkout data after cancelling a previous attempt:
+  //    abandon that unpaid order (cancel its PaymentIntent, release its parts).
+  if (payload.previousOrderAccessToken) {
+    const { data: previousOrder, error: previousOrderError } = await supabase
+      .from('orders')
+      .select('id, order_reference, access_token, status, idempotency_key')
+      .eq('access_token', payload.previousOrderAccessToken)
+      .maybeSingle();
+
+    if (previousOrderError) {
+      return jsonResponse({ error: 'DB_ERROR', message: 'Error consultando el pedido anterior' }, 500);
+    }
+
+    if (
+      previousOrder &&
+      previousOrder.idempotency_key !== payload.idempotencyKey &&
+      RESUMABLE_ORDER_STATUSES.has(previousOrder.status)
+    ) {
+      try {
+        const outcome = await abandonUnpaidOrder(supabase, previousOrder.id, stripeSecretKey);
+        if (outcome === 'paid') {
+          return jsonResponse(
+            {
+              error: 'PREVIOUS_ORDER_ALREADY_PAID',
+              message: 'Tu intento de pago anterior ya se ha completado. No se ha creado un pedido nuevo.',
+              orderReference: previousOrder.order_reference,
+              accessToken: previousOrder.access_token,
+            },
+            409
+          );
+        }
+      } catch (err: any) {
+        return jsonResponse(
+          { error: 'STRIPE_NETWORK_ERROR', message: 'No se pudo anular el intento de pago anterior', details: err.message },
+          502
+        );
+      }
+    }
+  }
+
   // 1. Idempotency check: see if order already exists with this idempotencyKey
   const { data: existingOrder, error: existingOrderError } = await supabase
     .from('orders')
-    .select(`
-      id,
-      order_reference,
-      customer_name,
-      customer_email,
-      customer_phone,
-      total_products_cents,
-      total_shipping_cents,
-      total_tax_cents,
-      total_order_cents,
-      tax_status,
-      is_test_order,
-      payload_hash,
-      access_token,
-      status,
-      order_suborders (
-        id,
-        suborder_reference,
-        vendor_id,
-        stripe_account_id,
-        stripe_payment_intent_id,
-        subtotal_cents,
-        shipping_cents,
-        total_cents,
-        platform_fee_cents,
-        seller_net_cents,
-        payment_status,
-        fulfillment_status
-      )
-    `)
+    .select(ORDER_SELECT)
     .eq('idempotency_key', payload.idempotencyKey)
     .maybeSingle();
 
   if (existingOrderError) {
-    return new Response(
-      JSON.stringify({ error: 'DB_ERROR', message: 'Error verificando idempotencia de pedido', details: existingOrderError.message }),
-      { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ error: 'DB_ERROR', message: 'Error verificando idempotencia de pedido' }, 500);
   }
 
   if (existingOrder) {
-    // Check if payload fingerprint matches
-    if (existingOrder.payload_hash !== payloadHash) {
-      return new Response(
-        JSON.stringify({
-          error: 'IDEMPOTENCY_CONFLICT',
-          message: 'Esta clave de idempotencia ya fue utilizada para un pedido con piezas o datos de entrega diferentes.',
-        }),
-        { status: 409, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const suborder = existingOrder.order_suborders?.[0];
-    return new Response(
-      JSON.stringify({
-        success: true,
-        orderReference: existingOrder.order_reference,
-        suborderReference: suborder?.suborder_reference,
-        accessToken: existingOrder.access_token,
-        clientSecret: suborder?.stripe_payment_intent_id ? `${suborder.stripe_payment_intent_id}_secret_reused` : null,
-        stripeAccountId: suborder?.stripe_account_id,
-        publishableKey: stripePublishableKey ?? null,
-        pricing: {
-          subtotalCents: existingOrder.total_products_cents,
-          shippingCents: existingOrder.total_shipping_cents,
-          taxCents: existingOrder.total_tax_cents,
-          totalCents: existingOrder.total_order_cents,
-          platformFeeCents: suborder?.platform_fee_cents ?? 0,
-          isTestOrder: existingOrder.is_test_order,
-          taxStatus: existingOrder.tax_status,
-        },
-        status: existingOrder.status,
-      }),
-      { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-    );
+    return resumeExistingOrder(resumeCtx, existingOrder);
   }
 
   // 2. Fetch parts from database and validate availability
@@ -316,6 +648,8 @@ export async function handler(req: Request): Promise<Response> {
       price_cents,
       availability_status,
       deleted_at,
+      reserved_until,
+      sold_order_id,
       vendors (
         id,
         trade_name,
@@ -354,7 +688,15 @@ export async function handler(req: Request): Promise<Response> {
 
   // Check availability
   for (const p of dbParts) {
-    if (p.deleted_at !== null || p.availability_status !== 'AVAILABLE') {
+    // RESERVED parts with an expired reservation can be bought again: reservePartsForOrder
+    // cancels the previous buyer's PaymentIntent before taking them over.
+    const reservationLive =
+      p.availability_status === 'RESERVED' && (!p.reserved_until || new Date(p.reserved_until).getTime() > Date.now());
+    const purchasable =
+      p.deleted_at === null &&
+      p.sold_order_id === null &&
+      (p.availability_status === 'AVAILABLE' || (p.availability_status === 'RESERVED' && !reservationLive));
+    if (!purchasable) {
       return new Response(
         JSON.stringify({
           error: 'PART_NOT_AVAILABLE',
@@ -526,55 +868,31 @@ export async function handler(req: Request): Promise<Response> {
     .single();
 
   if (insertOrderError) {
-    // If 23505 race condition on idempotency_key occurred
+    // 23505: a concurrent request with the same idempotency key created the order first.
     if (insertOrderError.code === '23505') {
       const { data: raceOrder } = await supabase
         .from('orders')
-        .select(`
-          order_reference,
-          access_token,
-          total_products_cents,
-          total_shipping_cents,
-          total_tax_cents,
-          total_order_cents,
-          tax_status,
-          is_test_order,
-          order_suborders (suborder_reference, stripe_account_id, stripe_payment_intent_id, platform_fee_cents)
-        `)
+        .select(ORDER_SELECT)
         .eq('idempotency_key', payload.idempotencyKey)
-        .single();
+        .maybeSingle();
 
       if (raceOrder) {
-        const sub = raceOrder.order_suborders?.[0];
-        return new Response(
-          JSON.stringify({
-            success: true,
-            orderReference: raceOrder.order_reference,
-            suborderReference: sub?.suborder_reference,
-            accessToken: raceOrder.access_token,
-            clientSecret: sub?.stripe_payment_intent_id ? `${sub.stripe_payment_intent_id}_secret` : null,
-            stripeAccountId: sub?.stripe_account_id,
-            publishableKey: stripePublishableKey ?? null,
-            pricing: {
-              subtotalCents: raceOrder.total_products_cents,
-              shippingCents: raceOrder.total_shipping_cents,
-              taxCents: raceOrder.total_tax_cents,
-              totalCents: raceOrder.total_order_cents,
-              platformFeeCents: sub?.platform_fee_cents ?? 0,
-              isTestOrder: raceOrder.is_test_order,
-              taxStatus: raceOrder.tax_status,
-            },
-          }),
-          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-        );
+        return resumeExistingOrder(resumeCtx, raceOrder);
       }
     }
 
-    return new Response(
-      JSON.stringify({ error: 'DB_ERROR', message: 'Error creando registro de pedido', details: insertOrderError.message }),
-      { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ error: 'DB_ERROR', message: 'Error creando registro de pedido' }, 500);
   }
+
+  // From here on, any failure cancels the order and releases whatever it reserved.
+  const failOrder = async (body: Record<string, unknown>, status: number): Promise<Response> => {
+    try {
+      await cancelOrderAndReleaseParts(supabase, newOrder.id);
+    } catch {
+      // The reservation expires on its own after the TTL.
+    }
+    return jsonResponse(body, status);
+  };
 
   // Insert suborder
   const { data: newSuborder, error: insertSuborderError } = await supabase
@@ -598,10 +916,7 @@ export async function handler(req: Request): Promise<Response> {
     .single();
 
   if (insertSuborderError) {
-    return new Response(
-      JSON.stringify({ error: 'DB_ERROR', message: 'Error creando subpedido de desguace', details: insertSuborderError.message }),
-      { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-    );
+    return failOrder({ error: 'DB_ERROR', message: 'Error creando subpedido de desguace' }, 500);
   }
 
   // Insert order items
@@ -618,13 +933,28 @@ export async function handler(req: Request): Promise<Response> {
 
   const { error: insertItemsError } = await supabase.from('order_items').insert(itemsToInsert);
   if (insertItemsError) {
-    return new Response(
-      JSON.stringify({ error: 'DB_ERROR', message: 'Error creando instantánea de piezas', details: insertItemsError.message }),
-      { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-    );
+    return failOrder({ error: 'DB_ERROR', message: 'Error creando instantánea de piezas' }, 500);
   }
 
-  // 7. Create Stripe PaymentIntent (Direct Charge)
+  // 7. Reserve the parts atomically: each part is a single physical unit.
+  let reservation: ReservationResult;
+  try {
+    reservation = await reservePartsForOrder(
+      supabase,
+      newOrder.id,
+      payload.partIds,
+      reservationTtlMinutes,
+      stripeSecretKey
+    );
+  } catch (err: any) {
+    return failOrder({ error: 'RESERVATION_ERROR', message: 'No se pudieron reservar las piezas', details: err.message }, 502);
+  }
+  if (!reservation.ok) {
+    await failOrder({}, 409);
+    return partNotAvailableResponse(reservation.conflictPartIds);
+  }
+
+  // 8. Create Stripe PaymentIntent (Direct Charge)
   let paymentIntentId: string;
   let clientSecret: string;
 
@@ -655,12 +985,12 @@ export async function handler(req: Request): Promise<Response> {
 
       if (!stripeRes.ok) {
         const stripeErr = await stripeRes.json();
-        return new Response(
-          JSON.stringify({
+        return failOrder(
+          {
             error: 'STRIPE_CHARGE_FAILED',
             message: `Fallo al crear PaymentIntent con Stripe: ${stripeErr.error?.message || 'Error desconocido'}`,
-          }),
-          { status: 502, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          },
+          502
         );
       }
 
@@ -668,29 +998,38 @@ export async function handler(req: Request): Promise<Response> {
       paymentIntentId = stripePi.id;
       clientSecret = stripePi.client_secret;
     } catch (err: any) {
-      return new Response(
-        JSON.stringify({ error: 'STRIPE_CALL_ERROR', message: 'Error comunicando con pasarela de pago', details: err.message }),
-        { status: 502, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
-      );
+      return failOrder({ error: 'STRIPE_CALL_ERROR', message: 'Error comunicando con pasarela de pago', details: err.message }, 502);
     }
   } else if (allowMockPaymentIntent) {
     paymentIntentId = `pi_staging_mock_${Date.now()}`;
     clientSecret = `${paymentIntentId}_secret_${generateAccessToken().slice(0, 16)}`;
   } else {
-    return new Response(
-      JSON.stringify({
+    return failOrder(
+      {
         error: 'CONFIG_ERROR',
         message: 'No es posible procesar el cargo: falta STRIPE_SECRET_KEY o cuenta de vendedor y el modo mock está desactivado.',
-      }),
-      { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      },
+      500
     );
   }
 
-  // Update suborder with payment_intent_id
-  await supabase
+  // Link the PaymentIntent to the suborder. Without this link the webhook cannot settle
+  // the order, so on failure the PaymentIntent is cancelled before it can be paid.
+  const { error: linkPiError } = await supabase
     .from('order_suborders')
     .update({ stripe_payment_intent_id: paymentIntentId, updated_at: new Date().toISOString() })
     .eq('id', newSuborder.id);
+
+  if (linkPiError) {
+    if (isRealStripePaymentIntentId(paymentIntentId) && stripeSecretKey && sellerStripeAccountId) {
+      try {
+        await stripeCancelPaymentIntent(paymentIntentId, sellerStripeAccountId, stripeSecretKey);
+      } catch {
+        // Nobody has the client secret yet, so it cannot be paid.
+      }
+    }
+    return failOrder({ error: 'DB_ERROR', message: 'Error vinculando el pago al pedido' }, 500);
+  }
 
   return new Response(
     JSON.stringify({

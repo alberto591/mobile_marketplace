@@ -118,7 +118,13 @@ export function InquiryModal({ visible, part, vendor, onClose }: Props) {
             {/* Header */}
             <View style={styles.header}>
               <Text style={styles.title}>Consultar disponibilidad</Text>
-              <Pressable onPress={handleResetAndClose} style={styles.closeBtn} disabled={isSubmitting}>
+              <Pressable
+                onPress={handleResetAndClose}
+                style={styles.closeBtn}
+                disabled={isSubmitting}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar consulta de disponibilidad"
+              >
                 <Text style={styles.closeBtnText}>✕</Text>
               </Pressable>
             </View>

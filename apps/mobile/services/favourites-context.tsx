@@ -43,7 +43,8 @@ export function FavouritesProvider({ children, storage }: FavouritesProviderProp
       try {
         const ids = await storageService.loadFavourites();
         if (isMounted) {
-          setSavedPartIds(ids);
+          // Keep anything the user saved while storage was still loading.
+          setSavedPartIds((prev) => [...ids, ...prev.filter((id) => !ids.includes(id))]);
         }
       } catch {
         // Fallback to empty list gracefully
@@ -75,19 +76,18 @@ export function FavouritesProvider({ children, storage }: FavouritesProviderProp
   };
 
   const toggleSaved = async (partId: string): Promise<boolean> => {
-    const { updated, isAdded } = toggleFavouriteId(savedPartIds, partId);
-    setSavedPartIds(updated);
+    // Functional updates: two calls in the same tick must not overwrite each other.
+    const { isAdded } = toggleFavouriteId(savedPartIds, partId);
+    setSavedPartIds((prev) => toggleFavouriteId(prev, partId).updated);
     return isAdded;
   };
 
   const removeSaved = async (partId: string): Promise<void> => {
-    const updated = removeFavouriteId(savedPartIds, partId);
-    setSavedPartIds(updated);
+    setSavedPartIds((prev) => removeFavouriteId(prev, partId));
   };
 
   const addSaved = async (partId: string): Promise<void> => {
-    const updated = addFavouriteId(savedPartIds, partId);
-    setSavedPartIds(updated);
+    setSavedPartIds((prev) => addFavouriteId(prev, partId));
   };
 
   const value = useMemo<FavouritesContextValue>(() => {

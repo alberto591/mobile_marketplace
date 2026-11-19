@@ -28,7 +28,9 @@ function loadLocalEnv() {
   }
 }
 
-describe('Live Backend Catalog & 9 Application Flows (Staging Integration)', { timeout: 35000 }, () => {
+// Hits the real staging backend and asserts on its current data, so it is opt-in:
+//   npm run test:live   (RUN_LIVE_TESTS=1, needs .env.local)
+describe.skipIf(process.env.RUN_LIVE_TESTS !== '1')('Live Backend Catalog & 9 Application Flows (Staging Integration)', { timeout: 35000 }, () => {
   beforeAll(() => {
     loadLocalEnv();
   });

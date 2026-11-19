@@ -18,6 +18,7 @@ import type {
 import {
   areOEMReferencesEqual,
   evaluateCompatibility,
+  normalizeOEMReference,
 } from '@mobile-marketplace/core';
 
 export interface BackendCatalogServiceOptions {
@@ -240,9 +241,19 @@ export class BackendCatalogService implements ICatalogService {
     };
   }
 
+  private vendorContactsLoading: Promise<unknown> | null = null;
+
   private async ensureVendorContactsLoaded(): Promise<void> {
     if (this.vendorContactsCache.size > 0) return;
-    await this.getVendors().catch(() => []);
+    // Share one in-flight request: N parallel part lookups used to fire N /vendors calls.
+    if (!this.vendorContactsLoading) {
+      this.vendorContactsLoading = this.getVendors()
+        .catch(() => [])
+        .finally(() => {
+          this.vendorContactsLoading = null;
+        });
+    }
+    await this.vendorContactsLoading;
   }
 
   async search(filters: SearchFilters): Promise<CatalogSearchResult> {
@@ -282,17 +293,49 @@ export class BackendCatalogService implements ICatalogService {
 
     params.push('limit=100');
 
-    const url = `${this.baseUrl}/rest/v1/public_catalog_parts?${params.join('&')}`;
+    // OEM / make / model are filtered in the database (search_public_catalog_parts) so the
+    // limit applies to matching parts. Filtering on the device after a limit=100 fetch hid
+    // every match outside the 100 most recently synced rows.
+    const rpcParams: string[] = [];
+    if (filters.oemReference) {
+      try {
+        rpcParams.push(`p_oem=${encodeURIComponent(normalizeOEMReference(filters.oemReference))}`);
+      } catch {
+        // Too short to normalize: the device-side filter below reports it as before.
+      }
+    }
+    if (filters.vehicleMake && filters.vehicleMake.trim() !== '') {
+      rpcParams.push(`p_make=${encodeURIComponent(filters.vehicleMake.trim())}`);
+    }
+    if (filters.vehicleModel && filters.vehicleModel.trim() !== '') {
+      rpcParams.push(`p_model=${encodeURIComponent(filters.vehicleModel.trim())}`);
+    }
+
+    const viewUrl = `${this.baseUrl}/rest/v1/public_catalog_parts?${params.join('&')}`;
+    const url =
+      rpcParams.length > 0
+        ? `${this.baseUrl}/rest/v1/rpc/search_public_catalog_parts?${[...rpcParams, ...params].join('&')}`
+        : viewUrl;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await this.fetchFn(url, {
+      let response = await this.fetchFn(url, {
         method: 'GET',
         headers: this.getHeaders(),
         signal: controller.signal,
       });
+
+      // Backend without migration 20261119000001 (function not found): query the view and
+      // rely on the device-side filters below, as before. Remove once every environment has it.
+      if (response.status === 404 && url !== viewUrl) {
+        response = await this.fetchFn(viewUrl, {
+          method: 'GET',
+          headers: this.getHeaders(),
+          signal: controller.signal,
+        });
+      }
 
       if (!response.ok) {
         throw new BackendCatalogError(

@@ -64,7 +64,14 @@ export async function verifyStripeSignature(
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-  const matched = signatures.some((s) => s === expectedSignature);
+  // Constant-time comparison: do not leak how many leading characters matched.
+  const timingSafeEqual = (a: string, b: string): boolean => {
+    if (a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return diff === 0;
+  };
+  const matched = signatures.some((s) => timingSafeEqual(s, expectedSignature));
   if (!matched) {
     return { valid: false, reason: 'Firma HMAC-SHA256 no coincide' };
   }
@@ -209,6 +216,7 @@ export async function handler(req: Request): Promise<Response> {
 
   // Process event by type
   let processingError: string | null = null;
+  let processingWarning: string | null = null;
 
   try {
     switch (event.type) {
@@ -217,7 +225,7 @@ export async function handler(req: Request): Promise<Response> {
         if (pi?.id) {
           const { data: suborder, error: subError } = await supabase
             .from('order_suborders')
-            .select('id, order_id, stripe_account_id, payment_status')
+            .select('id, order_id, stripe_account_id, payment_status, total_cents, currency')
             .eq('stripe_payment_intent_id', pi.id)
             .maybeSingle();
 
@@ -230,7 +238,7 @@ export async function handler(req: Request): Promise<Response> {
           } else {
             // Idempotent transition: only update if not already SUCCEEDED
             if (suborder.payment_status !== 'SUCCEEDED') {
-              await supabase
+              const { error: subUpdateError } = await supabase
                 .from('order_suborders')
                 .update({
                   payment_status: 'SUCCEEDED',
@@ -238,6 +246,26 @@ export async function handler(req: Request): Promise<Response> {
                   updated_at: new Date().toISOString(),
                 })
                 .eq('id', suborder.id);
+              if (subUpdateError) throw new Error(`Error actualizando subpedido: ${subUpdateError.message}`);
+            }
+
+            // Defense in depth: the amount Stripe collected must be the order total we computed.
+            // The buyer has been charged either way, so the order is settled and flagged for review.
+            const receivedCents = typeof pi.amount_received === 'number' ? pi.amount_received : pi.amount;
+            const receivedCurrency = String(pi.currency || '').toUpperCase();
+            if (receivedCents !== suborder.total_cents || receivedCurrency !== String(suborder.currency).toUpperCase()) {
+              processingWarning = `REVISIÓN MANUAL: importe cobrado ${receivedCents} ${receivedCurrency} no coincide con el subpedido (${suborder.total_cents} ${suborder.currency}). PI ${pi.id}.`;
+            }
+
+            // Each part is one physical unit: take the paid parts out of the catalog for good.
+            const { data: soldResult, error: soldError } = await supabase.rpc('mark_order_parts_sold', {
+              p_order_id: suborder.order_id,
+            });
+            if (soldError) throw new Error(`Error marcando piezas como vendidas: ${soldError.message}`);
+            const soldConflicts: string[] = soldResult?.conflictPartIds ?? [];
+            if (soldConflicts.length > 0) {
+              // Already sold to another order: needs a refund. Logged, not retried (retrying cannot fix it).
+              processingWarning = `${processingWarning ? processingWarning + ' | ' : ''}REVISIÓN MANUAL: piezas ya vendidas a otro pedido (${soldConflicts.join(', ')}). Pedido ${suborder.order_id} cobrado: tramitar reembolso.`;
             }
 
             // Check if all suborders for parent order are succeeded
@@ -249,13 +277,14 @@ export async function handler(req: Request): Promise<Response> {
             const allPaid = allSuborders?.every((s) => s.payment_status === 'SUCCEEDED');
             const targetStatus = allPaid ? 'PAID' : 'PARTIALLY_PAID';
 
-            await supabase
+            const { error: orderUpdateError } = await supabase
               .from('orders')
               .update({
                 status: targetStatus,
                 updated_at: new Date().toISOString(),
               })
               .eq('id', suborder.order_id);
+            if (orderUpdateError) throw new Error(`Error actualizando pedido: ${orderUpdateError.message}`);
           }
         }
         break;
@@ -277,23 +306,28 @@ export async function handler(req: Request): Promise<Response> {
           } else if (event.account && suborder.stripe_account_id && suborder.stripe_account_id !== event.account) {
             processingError = `Conflicto de cuenta conectada: evento de ${event.account} no coincide con el subpedido (${suborder.stripe_account_id})`;
           } else {
-            if (suborder.payment_status !== 'FAILED') {
+            // Stripe does not guarantee event order: a late payment_failed (e.g. a declined first
+            // card) must never downgrade a payment that already succeeded. After a decline the
+            // PaymentIntent is still payable, so the part reservation is kept.
+            if (suborder.payment_status === 'PENDING' || suborder.payment_status === 'PROCESSING') {
               await supabase
                 .from('order_suborders')
                 .update({
                   payment_status: 'FAILED',
                   updated_at: new Date().toISOString(),
                 })
-                .eq('id', suborder.id);
-            }
+                .eq('id', suborder.id)
+                .in('payment_status', ['PENDING', 'PROCESSING']);
 
-            await supabase
-              .from('orders')
-              .update({
-                status: 'PAYMENT_FAILED',
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', suborder.order_id);
+              await supabase
+                .from('orders')
+                .update({
+                  status: 'PAYMENT_FAILED',
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', suborder.order_id)
+                .in('status', ['PENDING_PAYMENT', 'PAYMENT_PROCESSING']);
+            }
           }
         }
         break;
@@ -331,7 +365,46 @@ export async function handler(req: Request): Promise<Response> {
                 status: 'PAYMENT_PROCESSING',
                 updated_at: new Date().toISOString(),
               })
-              .eq('id', suborder.order_id);
+              .eq('id', suborder.order_id)
+              .in('status', ['PENDING_PAYMENT', 'PAYMENT_FAILED']);
+          }
+        }
+        break;
+      }
+
+      case 'payment_intent.canceled': {
+        const pi = event.data.object;
+        if (pi?.id) {
+          const { data: suborder, error: subError } = await supabase
+            .from('order_suborders')
+            .select('id, order_id, stripe_account_id, payment_status')
+            .eq('stripe_payment_intent_id', pi.id)
+            .maybeSingle();
+
+          if (subError) {
+            processingError = `Error consultando subpedido para PI ${pi.id}: ${subError.message}`;
+          } else if (!suborder) {
+            // PaymentIntent never linked to an order (e.g. cancelled during checkout cleanup).
+            break;
+          } else if (event.account && suborder.stripe_account_id && suborder.stripe_account_id !== event.account) {
+            processingError = `Conflicto de cuenta conectada: evento de ${event.account} no coincide con el subpedido (${suborder.stripe_account_id})`;
+          } else if (suborder.payment_status !== 'SUCCEEDED') {
+            const now = new Date().toISOString();
+            await supabase
+              .from('order_suborders')
+              .update({ payment_status: 'CANCELLED', fulfillment_status: 'CANCELLED', updated_at: now })
+              .eq('id', suborder.id)
+              .in('payment_status', ['PENDING', 'FAILED', 'PROCESSING']);
+            await supabase
+              .from('orders')
+              .update({ status: 'CANCELLED', updated_at: now })
+              .eq('id', suborder.order_id)
+              .in('status', ['PENDING_PAYMENT', 'PAYMENT_FAILED', 'PAYMENT_PROCESSING']);
+
+            const { error: releaseError } = await supabase.rpc('release_order_reservations', {
+              p_order_id: suborder.order_id,
+            });
+            if (releaseError) throw new Error(`Error liberando piezas reservadas: ${releaseError.message}`);
           }
         }
         break;
@@ -421,7 +494,7 @@ export async function handler(req: Request): Promise<Response> {
       .from('stripe_webhook_events')
       .update({
         processing_status: processingError ? 'FAILED' : 'PROCESSED',
-        error_message: processingError,
+        error_message: processingError ?? processingWarning,
         processed_at: new Date().toISOString(),
       })
       .eq('id', recordedEventId);

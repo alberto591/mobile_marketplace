@@ -18,6 +18,8 @@ export interface CreatePaymentIntentRequest {
   readonly address: CheckoutAddress;
   readonly partIds: readonly string[];
   readonly idempotencyKey: string;
+  /** Unpaid order of this same checkout that the server should cancel and release. */
+  readonly previousOrderAccessToken?: string;
 }
 
 export interface CheckoutPricingResponse {
@@ -99,6 +101,12 @@ export class CheckoutError extends Error {
     this.name = 'CheckoutError';
     this.statusCode = options?.statusCode;
     this.errorDetails = options?.details;
+  }
+
+  /** Machine-readable server error code (e.g. 'PART_NOT_AVAILABLE'), when the server sent one. */
+  get errorCode(): string | undefined {
+    const details = this.errorDetails as { error?: unknown } | undefined;
+    return typeof details?.error === 'string' ? details.error : undefined;
   }
 }
 

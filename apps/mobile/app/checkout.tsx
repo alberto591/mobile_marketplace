@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import React, { useId, useMemo, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,7 +15,18 @@ import {
 import { initStripe, useStripe } from '../services/stripe-client';
 import { formatMoney } from '@mobile-marketplace/core';
 import { useCart } from '../services/cart-context';
-import { checkoutService } from '../services/checkout.service';
+import { AsyncStorageCartStorage } from '../services/cart-storage';
+import { rememberPendingOrder } from '../services/pending-orders.service';
+import { CheckoutError, checkoutService } from '../services/checkout.service';
+import type { CheckoutPricingResponse } from '../services/checkout.service';
+import {
+  computeCheckoutFingerprint,
+  createInitialAttemptState,
+  planCheckoutAttempt,
+  recordOrderCreated,
+  resetAttempt,
+  shouldResetAttempt,
+} from '../services/checkout-attempt';
 import { borderRadius, colors, spacing, typography } from '../theme/index';
 
 export default function CheckoutScreen() {
@@ -38,8 +49,11 @@ export default function CheckoutScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Stable client idempotency seed per checkout session
-  const [sessionSeed] = useState(() => `chk_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
+  // Idempotency bookkeeping: retrying with the same data resumes the same order and
+  // PaymentIntent; changed data starts a new order and releases the previous one.
+  const attemptRef = useRef(createInitialAttemptState());
+  // Synchronous guard: React state alone lets two taps in the same frame both submit.
+  const submittingRef = useRef(false);
 
   // Multi-vendor check
   const isMultiVendor = vendorGroups.length > 1;
@@ -54,8 +68,20 @@ export default function CheckoutScreen() {
     return activeItems.reduce((acc, i) => acc + i.part.price.amountInCents, 0);
   }, [activeItems]);
 
-  const shippingCents = 950; // Staging fixed test shipping
-  const totalCents = subtotalCents + shippingCents;
+  // The server is the pricing authority (it recomputes from the live catalog). Until it
+  // answers, the breakdown is an estimate from the cart snapshot; once it answers, the
+  // screen shows exactly what will be charged.
+  const cartKey = useMemo(() => activeItems.map((i) => i.part.id).sort().join(','), [activeItems]);
+  const [confirmedPricing, setConfirmedPricing] = useState<{ cartKey: string; pricing: CheckoutPricingResponse } | null>(null);
+  const serverPricing = confirmedPricing?.cartKey === cartKey ? confirmedPricing.pricing : null;
+
+  const ESTIMATED_SHIPPING_CENTS = 950;
+  const displaySubtotalCents = serverPricing?.subtotalCents ?? subtotalCents;
+  const shippingCents = serverPricing?.shippingCents ?? ESTIMATED_SHIPPING_CENTS;
+  const taxCents = serverPricing?.taxCents ?? 0;
+  const totalCents = serverPricing?.totalCents ?? subtotalCents + ESTIMATED_SHIPPING_CENTS;
+  const isTestOrder = serverPricing?.isTestOrder ?? process.env.EXPO_PUBLIC_CHECKOUT_TEST_MODE !== 'false';
+  const formatCents = (cents: number) => `${(cents / 100).toFixed(2).replace('.', ',')} EUR`;
 
   const validateForm = (): boolean => {
     setErrorMessage(null);
@@ -107,31 +133,69 @@ export default function CheckoutScreen() {
       return;
     }
 
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setIsSubmitting(true);
     setErrorMessage(null);
 
-    try {
-      const partIds = activeItems.map((i) => i.part.id);
-      const idempotencyKey = `${sessionSeed}_${partIds.slice().sort().join('_')}`;
-
-      // 1. Server-side order creation & PaymentIntent generation
-      const res = await checkoutService.createPaymentIntent({
-        contact: {
-          customerName: customerName.trim(),
-          customerEmail: customerEmail.trim().toLowerCase(),
-          customerPhone: customerPhone.trim(),
-        },
-        address: {
-          line1: line1.trim(),
-          line2: line2.trim() || undefined,
-          city: city.trim(),
-          province: province.trim(),
-          postalCode: postalCode.trim(),
-          country: 'ES',
-        },
-        partIds,
-        idempotencyKey,
+    const partIds = activeItems.map((i) => i.part.id);
+    // orderedPartIds: cart items the order screen removes once the backend confirms payment.
+    const goToOrder = (reference: string, token: string, orderedPartIds: readonly string[] = partIds) =>
+      router.replace({
+        pathname: '/order/[reference]',
+        params: { reference, token, orderedPartIds: JSON.stringify(orderedPartIds) },
       });
+
+    try {
+      const contact = {
+        customerName: customerName.trim(),
+        customerEmail: customerEmail.trim().toLowerCase(),
+        customerPhone: customerPhone.trim(),
+      };
+      const address = {
+        line1: line1.trim(),
+        line2: line2.trim() || undefined,
+        city: city.trim(),
+        province: province.trim(),
+        postalCode: postalCode.trim(),
+        country: 'ES' as const,
+      };
+      const plan = planCheckoutAttempt(
+        attemptRef.current,
+        computeCheckoutFingerprint({ contact, address, partIds })
+      );
+      attemptRef.current = plan.state;
+
+      // 1. Server-side order creation (or resumption) & PaymentIntent
+      const res = await checkoutService.createPaymentIntent({
+        contact,
+        address,
+        partIds,
+        idempotencyKey: plan.idempotencyKey,
+        previousOrderAccessToken: plan.previousOrderAccessToken,
+      });
+      attemptRef.current = recordOrderCreated(attemptRef.current, res.accessToken);
+
+      // This attempt was already paid (e.g. the first response was lost): show the order.
+      if (!res.clientSecret && res.status !== 'PENDING_PAYMENT') {
+        goToOrder(res.orderReference, res.accessToken);
+        return;
+      }
+
+      // Never charge an amount the buyer has not seen: if the server total differs from the
+      // one on screen, show the real breakdown and ask for a second, informed tap.
+      if (res.pricing && res.pricing.totalCents !== totalCents) {
+        setConfirmedPricing({ cartKey, pricing: res.pricing });
+        setErrorMessage(
+          `El total se ha actualizado a ${formatCents(res.pricing.totalCents)} según el precio actual del catálogo. Revisa el desglose y pulsa "Pagar" de nuevo para confirmar.`
+        );
+        submittingRef.current = false;
+        setIsSubmitting(false);
+        return;
+      }
+      if (res.pricing) {
+        setConfirmedPricing({ cartKey, pricing: res.pricing });
+      }
 
       if (!res.clientSecret) {
         throw new Error('No se recibió la clave secreta de pago desde el servidor.');
@@ -169,7 +233,9 @@ export default function CheckoutScreen() {
 
       if (presentError) {
         if (presentError.code === 'Canceled') {
-          // Customer cancelled payment sheet; preserve cart and form
+          // Customer cancelled payment sheet; preserve cart and form. Paying again with
+          // the same data resumes this same order and PaymentIntent.
+          submittingRef.current = false;
           setIsSubmitting(false);
           return;
         }
@@ -178,16 +244,26 @@ export default function CheckoutScreen() {
 
       // 4. PaymentSheet returned success -> Redirect to order tracking screen
       // The order screen checks backend authority before clearing the cart.
-      router.replace({
-        pathname: '/order/[reference]',
-        params: {
-          reference: res.orderReference,
-          token: res.accessToken,
-          orderedPartIds: JSON.stringify(partIds),
-        },
+      await rememberPendingOrder(new AsyncStorageCartStorage(), {
+        reference: res.orderReference,
+        accessToken: res.accessToken,
+        partIds,
       });
+      goToOrder(res.orderReference, res.accessToken);
     } catch (err: any) {
+      if (err instanceof CheckoutError) {
+        const details = err.errorDetails as { orderReference?: string; accessToken?: string } | undefined;
+        if (err.errorCode === 'PREVIOUS_ORDER_ALREADY_PAID' && details?.orderReference && details.accessToken) {
+          // Its parts are unknown here, so the cart is left untouched.
+          goToOrder(details.orderReference, details.accessToken, []);
+          return;
+        }
+        if (shouldResetAttempt(err.errorCode)) {
+          attemptRef.current = resetAttempt(attemptRef.current);
+        }
+      }
       setErrorMessage(err?.message || 'Error procesando el pago. Tu carrito se mantiene intacto.');
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -214,7 +290,7 @@ export default function CheckoutScreen() {
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Test Mode Banner */}
-        <View style={styles.stagingBanner}>
+        <View style={[styles.stagingBanner, !isTestOrder && { display: 'none' }]}>
           <View style={styles.badgeStaging}>
             <Text style={styles.badgeStagingText}>MODO PRUEBAS · STAGING</Text>
           </View>
@@ -362,17 +438,20 @@ export default function CheckoutScreen() {
 
           <View style={styles.breakdownRow}>
             <Text style={styles.breakdownLabel}>Subtotal recambios ({activeItems.length})</Text>
-            <Text style={styles.breakdownValue}>{(subtotalCents / 100).toFixed(2).replace('.', ',')} EUR</Text>
+            <Text style={styles.breakdownValue}>{formatCents(displaySubtotalCents)}</Text>
           </View>
 
           <View style={styles.breakdownRow}>
-            <Text style={styles.breakdownLabel}>Gastos de envío (Tarifa de pruebas Staging)</Text>
-            <Text style={styles.breakdownValue}>9,50 EUR</Text>
+            <Text style={styles.breakdownLabel}>
+              {isTestOrder ? 'Gastos de envío (tarifa de pruebas)' : 'Gastos de envío'}
+              {serverPricing ? '' : ' (estimado)'}
+            </Text>
+            <Text style={styles.breakdownValue}>{formatCents(shippingCents)}</Text>
           </View>
 
           <View style={styles.breakdownRow}>
             <Text style={styles.breakdownLabel}>Impuestos aplicables (IVA / REBU)</Text>
-            <Text style={[styles.breakdownValue, { color: colors.warning }]}>0,00 EUR *</Text>
+            <Text style={[styles.breakdownValue, { color: colors.warning }]}>{formatCents(taxCents)} *</Text>
           </View>
 
           <View style={styles.taxNotice}>
@@ -384,8 +463,11 @@ export default function CheckoutScreen() {
           <View style={styles.totalDivider} />
 
           <View style={styles.breakdownRow}>
-            <Text style={styles.totalLabel}>Total a pagar en pruebas</Text>
-            <Text style={styles.totalValue}>{(totalCents / 100).toFixed(2).replace('.', ',')} EUR</Text>
+            <Text style={styles.totalLabel}>
+              {serverPricing ? 'Total a pagar' : 'Total estimado'}
+              {isTestOrder ? ' (pruebas)' : ''}
+            </Text>
+            <Text style={styles.totalValue}>{formatCents(totalCents)}</Text>
           </View>
         </View>
 
@@ -402,12 +484,12 @@ export default function CheckoutScreen() {
           onPress={handlePay}
           disabled={isSubmitting}
           accessibilityRole="button"
-          accessibilityLabel="Pagar con Stripe en modo pruebas"
+          accessibilityLabel={isTestOrder ? 'Pagar con Stripe en modo pruebas' : 'Pagar con Stripe'}
         >
           {isSubmitting ? (
             <ActivityIndicator color={colors.textInverse} size="small" />
           ) : (
-            <Text style={styles.payButtonText}>Pagar con Stripe (Modo Pruebas)</Text>
+            <Text style={styles.payButtonText}>{isTestOrder ? 'Pagar con Stripe (Modo Pruebas)' : 'Pagar con Stripe'}</Text>
           )}
         </Pressable>
       </ScrollView>

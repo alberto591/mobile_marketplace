@@ -83,6 +83,24 @@ describe('Eurodesguace Edge Function Security & Authorization', () => {
     expect(body.validItems).toBe(1);
   });
 
+  it('rejects anonymous health and sample-parts calls without touching the provider API (HTTP 401)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    for (const action of ['health', 'sample-parts', '']) {
+      const query = action ? `?action=${action}` : '';
+      const res = await handler(new Request(`http://localhost/eurodesguace-sync${query}`, { method: 'GET' }));
+      expect(res.status).toBe(401);
+      expect((await res.json()).error).toBe('unauthorized');
+    }
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the ping heartbeat public', async () => {
+    const res = await handler(new Request('http://localhost/eurodesguace-sync?action=ping', { method: 'GET' }));
+    expect(res.status).toBe(200);
+  });
+
   it('health check returns sanitized status without leaking backend secrets', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(
@@ -100,6 +118,7 @@ describe('Eurodesguace Edge Function Security & Authorization', () => {
 
     const req = new Request('http://localhost/eurodesguace-sync?action=health', {
       method: 'GET',
+      headers: { Authorization: 'Bearer test-custom-admin-secret' },
     });
 
     const res = await handler(req);

@@ -28,6 +28,17 @@ export default function OrderDetailScreen() {
   useEffect(() => {
     let isMounted = true;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    // Polling budget: ~2 minutes with backoff, then the user refreshes by reopening the screen.
+    const MAX_POLLS = 20;
+    const MAX_CONSECUTIVE_MISSES = 3;
+    let polls = 0;
+    let misses = 0;
+    let hasOrder = false;
+    const schedule = () => {
+      if (!isMounted || polls >= MAX_POLLS) return;
+      polls += 1;
+      pollTimer = setTimeout(fetchOrder, Math.min(3000 + polls * 500, 10000));
+    };
 
     async function fetchOrder() {
       if (!token) {
@@ -43,6 +54,8 @@ export default function OrderDetailScreen() {
         if (!isMounted) return;
 
         if (data) {
+          hasOrder = true;
+          misses = 0;
           setOrder(data);
           setIsLoading(false);
 
@@ -62,8 +75,12 @@ export default function OrderDetailScreen() {
 
           // If still pending, poll a couple of times for webhook confirmation
           if (data.status === 'PENDING_PAYMENT' || data.status === 'PAYMENT_PROCESSING') {
-            pollTimer = setTimeout(fetchOrder, 3000);
+            schedule();
           }
+        } else if (hasOrder || (misses += 1) < MAX_CONSECUTIVE_MISSES) {
+          // A null answer is also what a network blip looks like: keep what is on screen
+          // (if anything) and try again instead of declaring the order missing.
+          schedule();
         } else {
           setError('No se pudo localizar el pedido con la clave proporcionada.');
           setIsLoading(false);

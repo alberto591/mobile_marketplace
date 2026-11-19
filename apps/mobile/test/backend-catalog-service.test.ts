@@ -169,6 +169,34 @@ describe('BackendCatalogService', () => {
     expect(callUrl).toContain('order=price_cents.asc');
   });
 
+  it('filters OEM, make and model in the database so the limit applies to matching parts', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [] });
+    const service = new BackendCatalogService({
+      baseUrl: 'https://test.supabase.co',
+      anonKey: 'test-key',
+      fetchFn: fetchMock as any,
+    });
+
+    await service.search({ oemReference: '6f0-857 508.B', sortBy: 'price_asc' });
+    await service.search({ vehicleMake: ' Seat ', vehicleModel: 'Ibiza 1.9' });
+    await service.search({ query: 'faro' });
+
+    const [oemUrl] = fetchMock.mock.calls[0];
+    expect(oemUrl).toContain('/rest/v1/rpc/search_public_catalog_parts?');
+    expect(oemUrl).toContain('p_oem=6F0857508B');
+    expect(oemUrl).toContain('order=price_cents.asc');
+    expect(oemUrl).toContain('limit=100');
+
+    const [vehicleUrl] = fetchMock.mock.calls[1];
+    expect(vehicleUrl).toContain('/rest/v1/rpc/search_public_catalog_parts?');
+    expect(vehicleUrl).toContain('p_make=Seat');
+    expect(vehicleUrl).toContain('p_model=Ibiza%201.9');
+
+    const [plainUrl] = fetchMock.mock.calls[2];
+    expect(plainUrl).toContain('/rest/v1/public_catalog_parts?');
+    expect(plainUrl).not.toContain('/rpc/');
+  });
+
   it('filters by OEM reference and evaluates official OEM compatibility', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

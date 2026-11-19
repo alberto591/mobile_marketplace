@@ -45,7 +45,7 @@ export const CustomerContactSchema = z
       .or(z.literal('')),
     privacyConsent: z.object({
       accepted: z.literal(true, {
-        errorMap: () => ({ message: 'Debes aceptar el aviso de privacidad para tramitar la consulta' }),
+        message: 'Debes aceptar el aviso de privacidad para tramitar la consulta',
       }),
       version: z.string().min(1).default('v1.0'),
     }),

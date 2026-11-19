@@ -143,6 +143,16 @@ export type EmailSenderFn = (params: {
   html: string;
 }) => Promise<EmailSenderResult>;
 
+/** Escapes text for safe interpolation into HTML content and double-quoted attributes. */
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function generateInquiryReference(): string {
   const now = new Date();
   const year = now.getUTCFullYear();
@@ -239,9 +249,21 @@ export async function handler(req: Request, options: HandlerOptions = {}): Promi
     );
   }
 
+  // Real payloads are a few KB. Rejecting oversized bodies before parsing also keeps
+  // schema validation from being fed huge collections.
+  const MAX_BODY_BYTES = 64 * 1024;
+  if (Number(req.headers.get('content-length') || '0') > MAX_BODY_BYTES) {
+    return new Response(JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', message: 'La petición es demasiado grande' }), {
+      status: 413,
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    });
+  }
+
   let bodyJson: unknown;
   try {
-    bodyJson = await req.json();
+    const rawBody = await req.text();
+    if (rawBody.length > MAX_BODY_BYTES) throw new Error('payload too large');
+    bodyJson = JSON.parse(rawBody);
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
       status: 400,
@@ -661,8 +683,8 @@ export async function handler(req: Request, options: HandlerOptions = {}): Promi
       const partRowsHtml = partsInGroup
         .map(
           (p) => `<tr>
-            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;"><b>${p.title}</b></td>
-            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">Ref. CAT: #${p.external_part_id}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;"><b>${escapeHtml(p.title)}</b></td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">Ref. CAT: #${escapeHtml(p.external_part_id)}</td>
             <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${(p.price_cents / 100).toFixed(2)} EUR (provisional)</td>
           </tr>`
         )
@@ -670,15 +692,15 @@ export async function handler(req: Request, options: HandlerOptions = {}): Promi
 
       const emailHtml = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
-          <h2 style="color: #0f172a;">Nueva consulta de disponibilidad [${inquiryReference}]</h2>
+          <h2 style="color: #0f172a;">Nueva consulta de disponibilidad [${escapeHtml(inquiryReference)}]</h2>
           <p>Se ha recibido una solicitud de comprobación de inventario a través del Marketplace de Recambios.</p>
           
           <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 16px 0;">
             <h3 style="margin-top: 0; font-size: 16px;">Datos del cliente:</h3>
-            <p><b>Nombre:</b> ${payload.customerName}</p>
-            ${payload.customerEmail ? `<p><b>Email:</b> <a href="mailto:${payload.customerEmail}">${payload.customerEmail}</a></p>` : ''}
-            ${payload.customerPhone ? `<p><b>Teléfono:</b> <a href="tel:${payload.customerPhone}">${payload.customerPhone}</a></p>` : ''}
-            ${payload.customerMessage ? `<p><b>Mensaje / Consulta:</b> "${payload.customerMessage}"</p>` : ''}
+            <p><b>Nombre:</b> ${escapeHtml(payload.customerName)}</p>
+            ${payload.customerEmail ? `<p><b>Email:</b> <a href="mailto:${escapeHtml(encodeURIComponent(payload.customerEmail))}">${escapeHtml(payload.customerEmail)}</a></p>` : ''}
+            ${payload.customerPhone ? `<p><b>Teléfono:</b> <a href="tel:${escapeHtml(encodeURIComponent(payload.customerPhone))}">${escapeHtml(payload.customerPhone)}</a></p>` : ''}
+            ${payload.customerMessage ? `<p><b>Mensaje / Consulta:</b> "${escapeHtml(payload.customerMessage)}"</p>` : ''}
           </div>
 
           <h3 style="font-size: 16px;">Piezas consultadas (${partsInGroup.length}):</h3>
@@ -705,7 +727,7 @@ export async function handler(req: Request, options: HandlerOptions = {}): Promi
       const sendResult = await sendEmailFn({
         to: recipientEmail,
         from: fromEmail,
-        subject: `Consulta disponibilidad [${inquiryReference}] - ${payload.customerName}`,
+        subject: `Consulta disponibilidad [${inquiryReference}] - ${payload.customerName.replace(/[\r\n]+/g, ' ')}`,
         html: emailHtml,
       });
 

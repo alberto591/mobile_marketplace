@@ -8,7 +8,9 @@ import {
   calculateCartSubtotal,
   groupCartItemsByVendor,
   removeItemFromCart,
+  sanitizeStoredCartItems,
 } from './cart.service';
+import { reconcilePendingOrders } from './pending-orders.service';
 
 const CART_STORAGE_KEY = '@mobile_marketplace:cart_v1';
 
@@ -46,11 +48,14 @@ export function CartProvider({ children, storage }: CartProviderProps) {
       try {
         const raw = await cartStorage.getItem(CART_STORAGE_KEY);
         if (raw && isMounted) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            setItems(parsed);
-          }
+          const stored = sanitizeStoredCartItems(JSON.parse(raw));
+          // Keep anything the user added while storage was still loading.
+          setItems((prev) => {
+            const addedIds = new Set(prev.map((i) => i.part.id));
+            return [...stored.filter((i) => !addedIds.has(i.part.id)), ...prev];
+          });
         }
+
       } catch {
         // Fallback to empty cart on parsing error
       } finally {
@@ -60,7 +65,20 @@ export function CartProvider({ children, storage }: CartProviderProps) {
       }
     }
 
-    loadCart();
+    // Orders paid in an earlier session whose confirmation screen was never seen: take
+    // their parts out of the cart so they cannot be bought twice. Runs in the background
+    // (it needs the network) so it never delays showing the cart.
+    loadCart().then(async () => {
+      try {
+        const paidPartIds = await reconcilePendingOrders(cartStorage);
+        if (paidPartIds.length > 0 && isMounted) {
+          const paid = new Set(paidPartIds);
+          setItems((prev) => prev.filter((i) => !paid.has(i.part.id)));
+        }
+      } catch {
+        // Retried on the next launch.
+      }
+    });
 
     return () => {
       isMounted = false;
@@ -83,7 +101,8 @@ export function CartProvider({ children, storage }: CartProviderProps) {
   const addItem = (part: Part, vendor: Vendor): { success: boolean; reason?: string } => {
     const result = addItemToCart(items, part, vendor);
     if (result.added) {
-      setItems(result.items);
+      // Functional update: two adds in the same tick must not overwrite each other.
+      setItems((prev) => addItemToCart(prev, part, vendor).items);
       return { success: true };
     }
     return { success: false, reason: result.reason };

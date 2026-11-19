@@ -14,6 +14,36 @@ export interface VendorCartGroup {
   readonly subtotal: Money;
 }
 
+/**
+ * Keeps only well-formed cart items from persisted storage and drops duplicates.
+ * A corrupted or outdated entry (e.g. missing price) would otherwise throw inside the
+ * root provider on every launch.
+ */
+export function sanitizeStoredCartItems(raw: unknown): CartItem[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const valid: CartItem[] = [];
+  for (const entry of raw) {
+    const part = entry?.part;
+    const vendor = entry?.vendor;
+    const cents = part?.price?.amountInCents;
+    const wellFormed =
+      typeof part?.id === 'string' &&
+      part.id !== '' &&
+      typeof part?.title === 'string' &&
+      Number.isInteger(cents) &&
+      cents >= 0 &&
+      typeof part?.price?.currency === 'string' &&
+      typeof part?.availability?.status === 'string' &&
+      typeof vendor?.id === 'string' &&
+      vendor.id !== '';
+    if (!wellFormed || seen.has(part.id)) continue;
+    seen.add(part.id);
+    valid.push(entry as CartItem);
+  }
+  return valid;
+}
+
 export interface AddToCartResult {
   readonly items: readonly CartItem[];
   readonly added: boolean;

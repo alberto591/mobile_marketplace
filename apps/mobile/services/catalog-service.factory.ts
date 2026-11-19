@@ -12,18 +12,30 @@ export interface CatalogServiceFactoryOptions {
   readonly includeMockEurodesguace?: boolean;
 }
 
+declare const __DEV__: boolean | undefined;
+
+/**
+ * Decides the catalog data source.
+ *
+ * - Release builds always use the backend: fake catalog data must never reach users,
+ *   whatever EXPO_PUBLIC_CATALOG_DATA_SOURCE says (or if it is missing from the build).
+ * - Development builds use the backend only when EXPO_PUBLIC_CATALOG_DATA_SOURCE === 'backend',
+ *   and the mock otherwise.
+ */
+export function resolveCatalogDataSource(envValue: string | undefined, isDevelopment: boolean): CatalogDataSource {
+  if (!isDevelopment) return 'backend';
+  return envValue === 'backend' ? 'backend' : 'mock';
+}
+
 /**
  * Creates an ICatalogService instance based on explicit environment configuration.
- *
- * Rules:
- * - In local dev/testing without remote backend: defaults to MockCatalogService.
- * - When EXPO_PUBLIC_CATALOG_DATA_SOURCE === 'backend' and backend URL is provided: uses BackendCatalogService.
- * - Never returns fake mock data to conceal live backend failures.
+ * Never returns fake mock data to conceal live backend failures.
  */
 export function createCatalogService(options: CatalogServiceFactoryOptions = {}): ICatalogService {
+  const isDevelopment = typeof __DEV__ === 'undefined' ? true : Boolean(__DEV__);
   const dataSource =
     options.dataSource ??
-    (process.env.EXPO_PUBLIC_CATALOG_DATA_SOURCE === 'backend' ? 'backend' : 'mock');
+    resolveCatalogDataSource(process.env.EXPO_PUBLIC_CATALOG_DATA_SOURCE, isDevelopment);
 
   if (dataSource === 'backend') {
     return new BackendCatalogService({

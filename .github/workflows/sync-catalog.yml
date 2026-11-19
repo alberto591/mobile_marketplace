@@ -1,0 +1,41 @@
+name: Scheduled Catalog Sync
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Batch size per sync call (max 50)
+        required: false
+        default: '50'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger eurodesguace-sync batch
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SYNC_ADMIN_SECRET: ${{ secrets.SYNC_ADMIN_SECRET }}
+          BATCH_LIMIT: ${{ github.event.inputs.limit || '50' }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SYNC_ADMIN_SECRET" ]; then
+            echo "Missing SUPABASE_URL or SYNC_ADMIN_SECRET secret" >&2
+            exit 1
+          fi
+
+          http_code=$(curl -sS -o /tmp/sync_response.json -w "%{http_code}" \
+            -X POST "${SUPABASE_URL%/}/functions/v1/eurodesguace-sync?action=sync-batch&limit=${BATCH_LIMIT}" \
+            -H "Authorization: Bearer ${SYNC_ADMIN_SECRET}" \
+            -H "Content-Type: application/json")
+
+          echo "Sync HTTP status: ${http_code}"
+          cat /tmp/sync_response.json
+          echo ""
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "Catalog sync failed with HTTP ${http_code}" >&2
+            exit 1
+          fi

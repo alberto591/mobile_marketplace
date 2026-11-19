@@ -5,9 +5,10 @@
  * 1. GET ?action=health: Checks live provider health (sanitized, zero secrets).
  * 2. GET ?action=sample-parts: Retrieves a small verified sample (up to 20 parts).
  * 3. POST ?action=sync-batch: Executes an authorized batch synchronization with idempotency.
- * 4. GET ?action=query-catalog: Public read-safe catalog query endpoint.
+ * 4. GET ?action=ping: Public heartbeat (does not call the provider).
  *
- * Security: Administrative actions (sync-batch) require service_role authorization.
+ * Security: health, sample-parts and sync-batch call the provider API with our key, so
+ * they require SYNC_ADMIN_SECRET or the service_role key. Only ping is public.
  * Zero private API keys, tokens or internal hashes are exposed to client callers.
  */
 
@@ -75,6 +76,25 @@ export async function handler(req: Request): Promise<Response> {
           timestamp: new Date().toISOString(),
         }),
         { status: 200, headers: corsHeaders }
+      );
+    }
+
+    // Every action below calls the provider API with our key (and counts against its
+    // rate limit), so all of them are administrative: only 'ping' is public.
+    const authHeader = req.headers.get('authorization') || req.headers.get('x-admin-secret') || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const isAuthorized =
+      Boolean(config.adminSecret && token === config.adminSecret) ||
+      Boolean(config.supabaseServiceRoleKey && token === config.supabaseServiceRoleKey);
+
+    if (!isAuthorized && (action === 'health' || action === 'sample-parts')) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'unauthorized',
+          message: `Operación administrativa denegada: ${action} requiere autorización explícita de service_role`,
+        }),
+        { status: 401, headers: corsHeaders }
       );
     }
 
@@ -174,12 +194,6 @@ export async function handler(req: Request): Promise<Response> {
     // -------------------------------------------------------------------------
     if (action === 'sync-batch') {
       // Security Guardrail: administrative sync requires service_role authorization
-      const authHeader = req.headers.get('authorization') || req.headers.get('x-admin-secret') || '';
-      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-      const isAuthorized =
-        Boolean(config.adminSecret && token === config.adminSecret) ||
-        Boolean(config.supabaseServiceRoleKey && token === config.supabaseServiceRoleKey);
-
       if (!isAuthorized) {
         return new Response(
           JSON.stringify({
